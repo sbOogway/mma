@@ -11,10 +11,11 @@ use crate::strategy::{
     exchange::traits::{DataProvider, Exchange, Executor},
 };
 
-const WSS_URL: &str = "wss://api.hyperliquid.xyz/ws";
+const WS_URL: &str = "wss://api.hyperliquid.xyz/ws";
 
 pub struct Hyperliquid {
     coins: Vec<String>,
+    ws_url: String,
 }
 
 #[derive(Serialize)]
@@ -49,7 +50,10 @@ struct WsTrade {
 
 impl Hyperliquid {
     pub fn new(coins: Vec<String>) -> Self {
-        Self { coins }
+        Self {
+            coins,
+            ws_url: WS_URL.into(),
+        }
     }
 }
 
@@ -58,7 +62,7 @@ impl DataProvider<PriceUpdate> for Hyperliquid {
         &self,
         mut disruptor: MultiProducer<PriceUpdate, SingleConsumerBarrier>,
     ) {
-        let (mut ws_stream, response) = connect_async(WSS_URL).await.unwrap();
+        let (mut ws_stream, response) = connect_async(&self.ws_url).await.unwrap();
 
         tracing::info!(status = %response.status(), "connected");
 

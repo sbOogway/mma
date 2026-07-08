@@ -22,7 +22,7 @@ impl PriceUpdate {
         }
     }
 
-    pub fn handle_update(&self, _seq: i64, _batch: bool) {
+    pub fn handle(&self, _seq: i64, _batch: bool) {
         tracing::info!(
             exchange = %self.exchange,
             symbol = %self.symbol,

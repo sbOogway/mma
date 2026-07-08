@@ -1,0 +1,10 @@
+[exchange.hyperliquid]
+coins = ["BTC", "ETH", "SOL"]
+
+[disruptor]
+buffer_size = 65536
+
+[strategy.avellaneda_stoikov_market_making]
+gamma = 0.1
+q = 0.0
+sigma = 0.02
