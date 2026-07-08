@@ -1,14 +1,12 @@
-use disruptor::{MultiProducer, SingleConsumerBarrier, };
-
-use crate::strategy::common_data_representation::{
-    disruptor::Disruptor, price_update::PriceUpdate,
-};
+use disruptor::{MultiProducer, SingleConsumerBarrier};
 
 pub trait Executor {
-    fn send_order();
-    fn cancel_order();
+    fn send_order(&self);
+    fn cancel_order(&self);
 }
 
 pub trait DataProvider<T> {
-    async fn listen_trades(disruptor: MultiProducer<T, SingleConsumerBarrier>);
+    async fn listen_trades(&self, disruptor: MultiProducer<T, SingleConsumerBarrier>);
 }
+
+pub trait Exchange<T>: DataProvider<T> + Executor {}
