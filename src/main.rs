@@ -1,13 +1,6 @@
 use tracing_subscriber::EnvFilter;
 
-use crate::{
-    config::AppConfig,
-    strategy::{
-        avellaneda_stoikov_market_making::AvellanedaStoikovMarketMaking,
-        common_data_representation::{disruptor::Disruptor, price_update::PriceUpdate},
-        exchange::hyperliquid::Hyperliquid,
-    },
-};
+use crate::{config::AppConfig, strategy::registry};
 
 mod config;
 mod strategy;
@@ -18,23 +11,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    strategy::register_strategies();
+
     let cfg = AppConfig::load()?;
 
     tracing::info!(?cfg, "configuration loaded");
 
-    let disruptor = Disruptor::new(
-        cfg.disruptor.buffer_size,
-        || PriceUpdate::empty(),
-        |update, seq, batch| update.handle(seq, batch),
-    );
-
-    let producer = disruptor.producer.clone();
-
-    let hyperliquid = Hyperliquid::new(cfg.exchange.hyperliquid.coins);
-
-    let asmm = AvellanedaStoikovMarketMaking::new(hyperliquid, producer);
-
-    asmm.run().await;
+    registry::run(&cfg.runtime.strategy, &cfg).await;
 
     Ok(())
 }

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use disruptor::{
-    BusySpinWithSpinLoopHint, MultiProducer, ProcessorSettings, SingleConsumerBarrier, Sleep,
+    MultiProducer, ProcessorSettings, SingleConsumerBarrier, Sleep,
 };
 
 

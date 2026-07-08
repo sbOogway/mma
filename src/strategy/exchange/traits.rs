@@ -1,3 +1,5 @@
+use std::{future::Future, pin::Pin};
+
 use disruptor::{MultiProducer, SingleConsumerBarrier};
 
 pub trait Executor {
@@ -6,7 +8,10 @@ pub trait Executor {
 }
 
 pub trait DataProvider<T> {
-    async fn listen_trades(&self, disruptor: MultiProducer<T, SingleConsumerBarrier>);
+    fn listen_trades(
+        &self,
+        disruptor: MultiProducer<T, SingleConsumerBarrier>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
-pub trait Exchange<T>: DataProvider<T> + Executor {}
+pub trait Exchange<T>: DataProvider<T> + Executor + Send + Sync {}

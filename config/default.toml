@@ -8,3 +8,7 @@ buffer_size = 65536
 gamma = 0.1
 q = 0.0
 sigma = 0.02
+
+[runtime]
+exchanges = ["hyperliquid"]
+strategy = "avellaneda_stoikov_market_making"

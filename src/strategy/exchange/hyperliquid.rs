@@ -1,3 +1,5 @@
+use std::{future::Future, pin::Pin};
+
 use disruptor::{MultiProducer, Producer, SingleConsumerBarrier};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -58,75 +60,79 @@ impl Hyperliquid {
 }
 
 impl DataProvider<PriceUpdate> for Hyperliquid {
-    async fn listen_trades(
+    fn listen_trades(
         &self,
         mut disruptor: MultiProducer<PriceUpdate, SingleConsumerBarrier>,
-    ) {
-        let (mut ws_stream, response) = connect_async(&self.ws_url).await.unwrap();
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        let ws_url = self.ws_url.clone();
+        let coins = self.coins.clone();
+        Box::pin(async move {
+            let (mut ws_stream, response) = connect_async(&ws_url).await.unwrap();
 
-        tracing::info!(status = %response.status(), "connected");
+            tracing::info!(status = %response.status(), "connected");
 
-        for coin in &self.coins {
-            let sub = Subscription {
-                method: "subscribe".into(),
-                subscription: SubscriptionParams {
-                    kind: "trades".into(),
-                    coin: coin.clone(),
-                },
-            };
-            ws_stream
-                .send(Message::Text(serde_json::to_string(&sub).unwrap().into()))
-                .await
-                .unwrap();
-        }
-
-        loop {
-            if let Some(msg) = ws_stream.next().await {
-                let text = match msg {
-                    Ok(Message::Text(t)) => t,
-                    _ => continue,
+            for coin in &coins {
+                let sub = Subscription {
+                    method: "subscribe".into(),
+                    subscription: SubscriptionParams {
+                        kind: "trades".into(),
+                        coin: coin.clone(),
+                    },
                 };
+                ws_stream
+                    .send(Message::Text(serde_json::to_string(&sub).unwrap().into()))
+                    .await
+                    .unwrap();
+            }
 
-                let root: WsMessage = match serde_json::from_str(&text) {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-
-                if root.channel != "trades" {
-                    continue;
-                }
-
-                let trades: Vec<WsTrade> = match serde_json::from_value(root.data) {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
-
-                for trade in trades {
-                    let price = match Decimal::from_str(&trade.price) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            tracing::warn!(raw = %trade.price, error = %e, "failed to parse price");
-                            continue;
-                        }
+            loop {
+                if let Some(msg) = ws_stream.next().await {
+                    let text = match msg {
+                        Ok(Message::Text(t)) => t,
+                        _ => continue,
                     };
-                    let size = match Decimal::from_str(&trade.size) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::warn!(raw = %trade.size, error = %e, "failed to parse size");
-                            continue;
-                        }
+
+                    let root: WsMessage = match serde_json::from_str(&text) {
+                        Ok(m) => m,
+                        Err(_) => continue,
                     };
-                    disruptor.publish(|slot: &mut PriceUpdate| {
-                        slot.exchange = "hyperliquid".into();
-                        slot.symbol = trade.coin;
-                        slot.side = trade.side;
-                        slot.price = price;
-                        slot.size = size;
-                        slot.time = trade.time;
-                    });
+
+                    if root.channel != "trades" {
+                        continue;
+                    }
+
+                    let trades: Vec<WsTrade> = match serde_json::from_value(root.data) {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+
+                    for trade in trades {
+                        let price = match Decimal::from_str(&trade.price) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::warn!(raw = %trade.price, error = %e, "failed to parse price");
+                                continue;
+                            }
+                        };
+                        let size = match Decimal::from_str(&trade.size) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::warn!(raw = %trade.size, error = %e, "failed to parse size");
+                                continue;
+                            }
+                        };
+                        disruptor.publish(|slot: &mut PriceUpdate| {
+                            slot.exchange = "hyperliquid".into();
+                            slot.symbol = trade.coin;
+                            slot.side = trade.side;
+                            slot.price = price;
+                            slot.size = size;
+                            slot.time = trade.time;
+                        });
+                    }
                 }
             }
-        }
+        })
     }
 }
 

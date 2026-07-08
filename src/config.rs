@@ -2,17 +2,24 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
-    pub exchange: ExchangeConfig,
+    pub runtime: RuntimeConfig,
+    pub exchange: ExchangeConfigs,
+    pub strategy: StrategyConfigs,
     pub disruptor: DisruptorConfig,
-    pub strategy: StrategyConfig,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ExchangeConfig {
-    pub hyperliquid: HyperliquidConfig,
+pub struct RuntimeConfig {
+    pub exchanges: Vec<String>,
+    pub strategy: String,
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ExchangeConfigs {
+    pub hyperliquid: Option<HyperliquidConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct HyperliquidConfig {
     pub coins: Vec<String>,
 }
@@ -23,8 +30,8 @@ pub struct DisruptorConfig {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct StrategyConfig {
-    pub avellaneda_stoikov_market_making: AvellanedaStoikovConfig,
+pub struct StrategyConfigs {
+    pub avellaneda_stoikov_market_making: Option<AvellanedaStoikovConfig>,
 }
 
 #[derive(Debug, Deserialize)]
