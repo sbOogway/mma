@@ -10,7 +10,7 @@ q = 0.0
 sigma = 0.02
 
 [mqtt]
-broker = "localhost"
+broker = "192.168.0.77"
 port = 1883
 topic_prefix = "mma"
 client_id = "mma-publisher"
