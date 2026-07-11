@@ -36,7 +36,7 @@ impl Strategy for AvellanedaStoikovMarketMaking {
         for exchange in self.exchanges {
             let producer = self.producer.clone();
             tokio::spawn(async move {
-                exchange.listen_trades(producer).await;
+                exchange.listen(producer).await;
             });
         }
         future::pending::<()>().await;

@@ -1,10 +1,13 @@
-pub mod price_update;
+pub mod bbo_update;
+pub mod trade_update;
 
-pub use price_update::PriceUpdate;
+pub use bbo_update::BboUpdate;
+pub use trade_update::TradeUpdate;
 
 pub enum Message {
     Empty,
-    PriceUpdate(PriceUpdate),
+    TradeUpdate(TradeUpdate),
+    BboUpdate(BboUpdate),
 }
 
 impl Message {
@@ -15,7 +18,8 @@ impl Message {
     pub fn handle(&self, seq: i64, batch: bool) {
         match self {
             Self::Empty => {}
-            Self::PriceUpdate(update) => update.handle(seq, batch),
+            Self::TradeUpdate(update) => update.handle(seq, batch),
+            Self::BboUpdate(update) => update.handle(seq, batch),
         }
     }
 }

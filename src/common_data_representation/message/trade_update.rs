@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 
 #[derive(Debug)]
-pub struct PriceUpdate {
+pub struct TradeUpdate {
     pub exchange: String,
     pub symbol: String,
     pub side: String,
@@ -10,7 +10,7 @@ pub struct PriceUpdate {
     pub time: u64,
 }
 
-impl PriceUpdate {
+impl TradeUpdate {
     pub fn handle(&self, _seq: i64, _batch: bool) {
         tracing::info!(
             exchange = %self.exchange,
