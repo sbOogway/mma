@@ -3,7 +3,6 @@ pub mod hyperliquid;
 use std::{future::Future, pin::Pin};
 
 use disruptor::{MultiProducer, SingleConsumerBarrier};
-use tokio::sync::mpsc;
 
 use crate::config::AppConfig;
 
@@ -20,7 +19,6 @@ pub trait DataProvider {
     fn listen(
         &self,
         disruptor: MultiProducer<Message, SingleConsumerBarrier>,
-        mqtt_tx: mpsc::Sender<Message>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 

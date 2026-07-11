@@ -1,7 +1,5 @@
 use std::{future::Future, pin::Pin};
 
-use tokio::sync::mpsc;
-
 use disruptor::{MultiProducer, Producer, SingleConsumerBarrier};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -77,7 +75,6 @@ impl DataProvider for Hyperliquid {
     fn listen(
         &self,
         mut disruptor: MultiProducer<AppMessage, SingleConsumerBarrier>,
-        mqtt_tx: mpsc::Sender<AppMessage>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         let coins = self.coins.clone();
         Box::pin(async move {
@@ -146,9 +143,8 @@ impl DataProvider for Hyperliquid {
                                     time: trade.time,
                                 });
                                 disruptor.publish(|slot: &mut AppMessage| {
-                                    *slot = trade_msg.clone();
+                                    *slot = trade_msg;
                                 });
-                                let _ = mqtt_tx.try_send(trade_msg);
                             }
                         }
                         "bbo" => {
@@ -202,9 +198,8 @@ impl DataProvider for Hyperliquid {
                                 time: bbo.time,
                             });
                             disruptor.publish(|slot: &mut AppMessage| {
-                                *slot = bbo_msg.clone();
+                                *slot = bbo_msg;
                             });
-                            let _ = mqtt_tx.try_send(bbo_msg);
                         }
                         _ => continue,
                     }

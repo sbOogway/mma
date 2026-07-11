@@ -7,7 +7,7 @@ framework for market making and arbitrage on various exchanges and assets
 ```mermaid
 flowchart TD
     subgraph strategy
-        disruptor
+        
         subgraph execution [execution]
             direction LR
             subgraph executor [executor]
@@ -17,6 +17,7 @@ flowchart TD
             
         end
         subgraph common_data_representation
+            disruptor
             subgraph visualization
                 direction LR
                 mqtt
@@ -56,7 +57,7 @@ flowchart TD
 
     mqtt <--> grafana
 
-    message --> visualization
+    disruptor --> visualization
 
     execution_logic --> executor
 ```
