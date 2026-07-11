@@ -5,7 +5,7 @@ services:
     ports:
       - "1883:1883"
     volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:Z
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:Z
     restart: unless-stopped
 
   grafana:
@@ -16,7 +16,7 @@ services:
     environment:
       - GF_INSTALL_PLUGINS=grafana-mqtt-datasource
     volumes:
-      - ./grafana/data:/var/lib/grafana:Z
-      - ./grafana/provisioning:/etc/grafana/provisioning:Z
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:Z
+      - ./docker/grafana/data:/var/lib/grafana:Z
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:Z
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:Z
     restart: unless-stopped

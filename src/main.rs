@@ -8,7 +8,6 @@ use crate::{
 mod common_data_representation;
 mod config;
 mod exchange;
-mod mqtt;
 mod strategy;
 
 #[tokio::main]

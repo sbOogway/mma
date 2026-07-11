@@ -6,7 +6,7 @@ use crate::{
     common_data_representation::{disruptor::Disruptor, message::Message},
     config::AppConfig,
     exchange::{self, Exchange},
-    mqtt::MqttPublisher,
+    common_data_representation::mqtt::MqttPublisher,
     strategy::Strategy,
 };
 

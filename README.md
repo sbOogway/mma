@@ -17,11 +17,20 @@ flowchart TD
             
         end
         subgraph common_data_representation
-            direction LR
+            subgraph visualization
+                direction LR
+                mqtt
+                grafana
+            end
+
+            subgraph message
+                direction LR
             
-            bbo_update
-            trade_update
-            
+
+                bbo_update
+                trade_update
+            end
+
             
 
         end
@@ -34,23 +43,20 @@ flowchart TD
             binance_wss
         end
 
-        subgraph visualization
-            direction LR
-            mqtt
-            grafana
-        end
+        
 
         
     end
 
-    data_provider --> common_data_representation
-
+    data_provider --> message
     common_data_representation --> visualization
 
-    common_data_representation --> disruptor
+    message --> disruptor
     disruptor --> execution
 
     mqtt <--> grafana
+
+    message --> visualization
 
     execution_logic --> executor
 ```
