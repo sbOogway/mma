@@ -8,6 +8,26 @@ use crate::config::MqttConfig;
 pub struct MqttPublisher;
 
 impl MqttPublisher {
+    async fn publish(client: &AsyncClient, topic: &str, payload: String) {
+        tracing::debug!(topic = %topic, payload = %payload, "mqtt publish");
+        if let Err(e) = client.publish(topic, QoS::AtMostOnce, false, payload).await {
+            tracing::warn!(error = %e, topic = %topic, "mqtt publish failed");
+        }
+    }
+
+    async fn publish_price(
+        client: &AsyncClient,
+        config: &MqttConfig,
+        exchange: &str,
+        symbol: &str,
+        kind: &str,
+        price: rust_decimal::Decimal,
+    ) {
+        let topic = format!("{}/{}/{}/{}", config.topic_prefix, exchange, kind, symbol);
+        let payload = serde_json::json!({ kind: price.to_f64().unwrap_or(0.0) }).to_string();
+        Self::publish(client, &topic, payload).await;
+    }
+
     pub async fn run(config: MqttConfig, mut rx: mpsc::Receiver<Message>) {
         tracing::info!("mqtt publisher starting: {}/{}", config.broker, config.port);
 
@@ -27,27 +47,12 @@ impl MqttPublisher {
         while let Some(msg) = rx.recv().await {
             match msg {
                 Message::TradeUpdate(t) => {
-                    let topic = format!("{}/{}/price/{}", config.topic_prefix, t.exchange, t.symbol);
-                    let payload = serde_json::json!({ "price": t.price.to_f64().unwrap_or(0.0) }).to_string();
-                    tracing::debug!(topic = %topic, payload = %payload, "mqtt publish trade");
-                    if let Err(e) = client.publish(&topic, QoS::AtMostOnce, false, payload).await {
-                        tracing::warn!(error = %e, topic = %topic, "mqtt publish failed");
-                    }
+                    Self::publish_price(&client, &config, &t.exchange, &t.symbol, "price", t.price).await;
                 }
                 Message::BboUpdate(b) => {
-                    let bid_topic = format!("{}/{}/bid/{}", config.topic_prefix, b.exchange, b.symbol);
-                    let bid_payload = serde_json::json!({ "bid": b.bid_price.to_f64().unwrap_or(0.0) }).to_string();
-                    tracing::debug!(topic = %bid_topic, payload = %bid_payload, "mqtt publish bid");
-                    if let Err(e) = client.publish(&bid_topic, QoS::AtMostOnce, false, bid_payload).await {
-                        tracing::warn!(error = %e, topic = %bid_topic, "mqtt publish failed");
-                    }
-
-                    let ask_topic = format!("{}/{}/ask/{}", config.topic_prefix, b.exchange, b.symbol);
-                    let ask_payload = serde_json::json!({ "ask": b.ask_price.to_f64().unwrap_or(0.0) }).to_string();
-                    tracing::debug!(topic = %ask_topic, payload = %ask_payload, "mqtt publish ask");
-                    if let Err(e) = client.publish(&ask_topic, QoS::AtMostOnce, false, ask_payload).await {
-                        tracing::warn!(error = %e, topic = %ask_topic, "mqtt publish failed");
-                    }
+                    Self::publish_price(&client, &config, &b.exchange, &b.symbol, "bid", b.bid_price).await;
+                    Self::publish_price(&client, &config, &b.exchange, &b.symbol, "ask", b.ask_price).await;
+                    Self::publish_price(&client, &config, &b.exchange, &b.symbol, "mid_price", b.mid_price).await;
                 }
                 Message::Empty => {}
             }
@@ -197,14 +202,20 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
+        let bid_price = Decimal::new(49900, 0);
+        let ask_price = Decimal::new(50100, 0);
+
+
         tx.send(Message::BboUpdate(BboUpdate {
             exchange: "hyperliquid".into(),
             symbol: "BTC".into(),
-            bid_price: Decimal::new(49900, 0),
-            bid_size: Decimal::new(10, 0),
+            bid_price: bid_price,
+            bid_size: ask_price,
             ask_price: Decimal::new(50100, 0),
             ask_size: Decimal::new(5, 0),
             time: 1234567890,
+            mid_price: bid_price + ask_price / Decimal::new(2, 0)
+            
         }))
         .await
         .unwrap();

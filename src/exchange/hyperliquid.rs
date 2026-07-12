@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, prelude::Zero};
 use std::str::FromStr;
 
 use crate::{
@@ -197,6 +197,7 @@ impl DataProvider for Hyperliquid {
                                 ask_price,
                                 ask_size,
                                 time: bbo.time,
+                                mid_price: Decimal::zero()
                             });
                             disruptor.publish(|slot: &mut AppMessage| {
                                 *slot = bbo_msg;

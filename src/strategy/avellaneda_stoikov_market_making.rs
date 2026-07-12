@@ -1,5 +1,7 @@
 use std::{
-    sync::{Arc, OnceLock},
+    cell::UnsafeCell,
+    collections::HashMap,
+    sync::{Arc, LazyLock, OnceLock},
     time::Duration,
 };
 
@@ -9,6 +11,7 @@ use disruptor::{
     builder::{NC, multi::MPBuilder},
 };
 use futures_util::future;
+use rust_decimal::Decimal;
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
@@ -25,17 +28,61 @@ impl AvellanedaStoikovMarketMaking {
     fn handle_message(message: &Message) {
         tracing::debug!("{:#?}", message);
 
-        if let Some(tx) = MQTT_TX.get() {
-            let _ = tx.try_send(message.clone());
+        match message {
+            Message::Empty => todo!(),
+            Message::TradeUpdate(update) => unsafe {
+                let state = &mut *STATE.0.get();
+
+                let key = format!("{}_{}", update.exchange, update.symbol);
+
+                state.insert(key, update.price);
+
+                if let Some(tx) = MQTT_TX.get() {
+                    let _ = tx.try_send(message.clone());
+                }
+            },
+            Message::BboUpdate(update) => {
+                let mid_price = (update.bid_price + update.ask_price) / Decimal::new(2, 0);
+
+                let bid_price_key = format!("{}_{}_bid_price", update.exchange, update.symbol);
+                let bid_size_key = format!("{}_{}_bid_size", update.exchange, update.symbol);
+
+                let ask_price_key = format!("{}_{}_ask_price", update.exchange, update.symbol);
+                let ask_size_key = format!("{}_{}_ask_size", update.exchange, update.symbol);
+
+                let mid_price_key = format!("{}_{}_mid_price", update.exchange, update.symbol);
+
+                unsafe {
+                    let state = &mut *STATE.0.get();
+
+                    state.insert(bid_price_key, update.bid_price);
+                    state.insert(bid_size_key, update.bid_size);
+
+                    state.insert(ask_price_key, update.ask_price);
+                    state.insert(ask_size_key, update.ask_size);
+
+                    state.insert(mid_price_key, mid_price);
+                }
+
+                if let Some(tx) = MQTT_TX.get() {
+                    let mut message_clone = update.clone();
+                    message_clone.mid_price = mid_price;
+                    let _ = tx.try_send(Message::BboUpdate(message_clone));
+                }
+            }
         }
     }
 }
+struct State(UnsafeCell<HashMap<String, Decimal>>);
+unsafe impl Sync for State {}
 
 pub static DISRUPTOR_PRODUCER: OnceLock<MultiProducer<Message, SingleConsumerBarrier>> =
     OnceLock::new();
 
 pub static MQTT_TX: OnceLock<Sender<Message>> = OnceLock::new();
 pub static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
+
+static STATE: LazyLock<State> = LazyLock::new(|| State(UnsafeCell::new(HashMap::new())));
 
 #[async_trait]
 impl Strategy for AvellanedaStoikovMarketMaking {
