@@ -85,6 +85,7 @@ mod tests {
 
     fn test_config(suffix: &str) -> MqttConfig {
         MqttConfig {
+            enabled: true,
             broker: "localhost".into(),
             port: 1883,
             topic_prefix: format!("test/mma/{suffix}"),

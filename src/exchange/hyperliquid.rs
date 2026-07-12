@@ -118,6 +118,7 @@ impl DataProvider for Hyperliquid {
                                 Ok(t) => t,
                                 Err(_) => continue,
                             };
+                            tracing::debug!(number = trades.len(), "trades received");
 
                             for trade in trades {
                                 let price = match Decimal::from_str(&trade.price) {

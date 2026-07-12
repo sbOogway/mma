@@ -23,8 +23,11 @@ pub struct AvellanedaStoikovMarketMaking {}
 
 impl AvellanedaStoikovMarketMaking {
     fn handle_message(message: &Message) {
-        tracing::info!("{:#?}", message);
-        let _ = MQTT_TX.get().unwrap().try_send(message.clone());
+        tracing::debug!("{:#?}", message);
+
+        if let Some(tx) = MQTT_TX.get() {
+            let _ = tx.try_send(message.clone());
+        }
     }
 }
 
@@ -37,8 +40,11 @@ pub static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
 #[async_trait]
 impl Strategy for AvellanedaStoikovMarketMaking {
     fn new(cfg: &AppConfig) -> Self {
-        let (mqtt_tx, mqtt_rx) = mpsc::channel(256);
-        let _mqtt_handle = tokio::spawn(MqttPublisher::run(cfg.mqtt.clone(), mqtt_rx));
+        if cfg.mqtt.enabled {
+            let (mqtt_tx, mqtt_rx) = mpsc::channel(256);
+            tokio::spawn(MqttPublisher::run(cfg.mqtt.clone(), mqtt_rx));
+            let _ = MQTT_TX.set(mqtt_tx);
+        }
 
         let disruptor_producer = disruptor::build_multi_producer(
             cfg.disruptor.buffer_size,
@@ -51,7 +57,6 @@ impl Strategy for AvellanedaStoikovMarketMaking {
         })
         .build();
 
-        let _ = MQTT_TX.set(mqtt_tx);
         let _ = DISRUPTOR_PRODUCER.set(disruptor_producer);
         let _ = EXCHANGES.set(
             cfg.runtime
