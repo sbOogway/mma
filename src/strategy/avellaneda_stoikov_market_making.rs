@@ -1,6 +1,9 @@
+use core::panic;
 use std::{
     cell::UnsafeCell,
     collections::HashMap,
+    fmt::format,
+    os::linux::raw::stat,
     sync::{Arc, LazyLock, OnceLock},
     time::Duration,
 };
@@ -11,11 +14,14 @@ use disruptor::{
     builder::{NC, multi::MPBuilder},
 };
 use futures_util::future;
-use rust_decimal::Decimal;
+use rust_decimal::{
+    Decimal, MathematicalOps,
+    prelude::{self, FromPrimitive, One},
+};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
-    common_data_representation::message::Message,
+    common_data_representation::message::{Message, asmm_quote::AsmmQuote},
     common_data_representation::mqtt::MqttPublisher,
     config::AppConfig,
     exchange::{self, Exchange},
@@ -25,11 +31,66 @@ use crate::{
 pub struct AvellanedaStoikovMarketMaking {}
 
 impl AvellanedaStoikovMarketMaking {
+    fn reservation_price(s: Decimal, q: Decimal, γ: Decimal, σ: Decimal) -> Decimal {
+        return s - q * γ * σ.powi(2);
+    }
+
+    fn optimal_spread(γ: Decimal, κ: Decimal) -> Decimal {
+        let one = Decimal::ONE;
+        let two = Decimal::from(2);
+
+        return two / γ * (one + (γ / κ)).ln();
+    }
+
+    fn init_state(cfg: &AppConfig) {
+        unsafe {
+            let state = &mut *STATE.0.get();
+
+            for exchange in EXCHANGES.get().unwrap() {
+                for symbol in exchange.symbols() {
+                    let γ_key = format!("{}_{}_γ", exchange.name(), symbol);
+                    state.insert(
+                        γ_key,
+                        cfg.strategy
+                            .avellaneda_stoikov_market_making
+                            .as_ref()
+                            .unwrap()
+                            .γ,
+                    );
+
+                    let σ_key = format!("{}_{}_σ", exchange.name(), symbol);
+                    state.insert(
+                        σ_key,
+                        cfg.strategy
+                            .avellaneda_stoikov_market_making
+                            .as_ref()
+                            .unwrap()
+                            .σ,
+                    );
+
+                    let κ_key = format!("{}_{}_κ", exchange.name(), symbol);
+                    state.insert(
+                        κ_key,
+                        cfg.strategy
+                            .avellaneda_stoikov_market_making
+                            .as_ref()
+                            .unwrap()
+                            .κ,
+                    );
+
+                    let q_key = format!("{}_{}_q", exchange.name(), symbol);
+                    state.insert(q_key, Decimal::from_f64(0.1).unwrap());
+                }
+            }
+        }
+    }
+
     fn handle_message(message: &Message) {
         tracing::debug!("{:#?}", message);
 
         match message {
             Message::Empty => todo!(),
+            Message::AsmmQuote(_) => todo!(),
             Message::TradeUpdate(update) => unsafe {
                 let state = &mut *STATE.0.get();
 
@@ -55,6 +116,24 @@ impl AvellanedaStoikovMarketMaking {
                 unsafe {
                     let state = &mut *STATE.0.get();
 
+                    let q_key = format!("{}_{}_q", update.exchange, update.symbol);
+                    let γ_key = format!("{}_{}_γ", update.exchange, update.symbol);
+                    let σ_key = format!("{}_{}_σ", update.exchange, update.symbol);
+                    let κ_key = format!("{}_{}_κ", update.exchange, update.symbol);
+
+                    let q = state.get(&q_key).unwrap();
+                    let γ = state.get(&γ_key).unwrap();
+                    let σ = state.get(&σ_key).unwrap();
+                    let κ = state.get(&κ_key).unwrap();
+
+                    let reservation_price =
+                        AvellanedaStoikovMarketMaking::reservation_price(mid_price, *q, *γ, *σ);
+
+                    let optimal_spread = AvellanedaStoikovMarketMaking::optimal_spread(*γ, *κ);
+
+                    let asmm_bid_price = reservation_price - optimal_spread / Decimal::new(2, 0);
+                    let asmm_ask_price = reservation_price + optimal_spread / Decimal::new(2, 0);
+
                     state.insert(bid_price_key, update.bid_price);
                     state.insert(bid_size_key, update.bid_size);
 
@@ -62,12 +141,20 @@ impl AvellanedaStoikovMarketMaking {
                     state.insert(ask_size_key, update.ask_size);
 
                     state.insert(mid_price_key, mid_price);
-                }
 
-                if let Some(tx) = MQTT_TX.get() {
-                    let mut message_clone = update.clone();
-                    message_clone.mid_price = mid_price;
-                    let _ = tx.try_send(Message::BboUpdate(message_clone));
+                    if let Some(tx) = MQTT_TX.get() {
+                        let mut message_clone = update.clone();
+                        message_clone.mid_price = mid_price;
+                        let _ = tx.try_send(Message::BboUpdate(message_clone));
+
+                        let _ = tx.try_send(Message::AsmmQuote(AsmmQuote {
+                            exchange: update.exchange.clone(),
+                            symbol: update.symbol.clone(),
+                            reservation_price,
+                            asmm_bid_price: asmm_bid_price,
+                            asmm_ask_price: asmm_ask_price,
+                        }));
+                    }
                 }
             }
         }
@@ -112,6 +199,8 @@ impl Strategy for AvellanedaStoikovMarketMaking {
                 .map(|name| exchange::new(name, cfg))
                 .collect(),
         );
+
+        AvellanedaStoikovMarketMaking::init_state(cfg);
 
         Self {}
     }
