@@ -10,7 +10,7 @@ buffer_size = 1024
 "σ" = 0.1
 
 [mqtt]
-enabled = true
+enabled = false
 broker = "127.0.0.1"
 port = 1883
 topic_prefix = "mma"

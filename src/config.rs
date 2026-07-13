@@ -1,3 +1,6 @@
+//! `config` module is responsible for parsing the configuration, in order to modify the behaviour
+//! of the system at runtime, without the need for recompilation.
+
 use rust_decimal::Decimal;
 use serde::Deserialize;
 
@@ -49,7 +52,7 @@ pub struct StrategyConfigs {
 pub struct AvellanedaStoikovConfig {
     pub γ: Decimal,
     pub κ: Decimal,
-    pub σ: Decimal
+    pub σ: Decimal,
 }
 
 impl AppConfig {

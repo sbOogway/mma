@@ -1,16 +1,9 @@
-#![warn(mixed_script_confusables)]
-
 use tracing_subscriber::EnvFilter;
 
-use crate::{
+use mma::{
     config::AppConfig,
     strategy::{Strategy, avellaneda_stoikov_market_making::AvellanedaStoikovMarketMaking},
 };
-
-mod common_data_representation;
-mod config;
-mod exchange;
-mod strategy;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,23 +1,21 @@
-use core::panic;
+//! implementation of the infamous market making strategy proposed by avellaneda and stoikov
+//! 
+//! this is the paper we take this strategy from 
+//! 
+//! <https://people.orie.cornell.edu/sfs33/LimitOrderBook.pdf>
+//! <https://doi.org/10.1080/14697680701381228>
+ 
 use std::{
     cell::UnsafeCell,
     collections::HashMap,
-    fmt::format,
-    os::linux::raw::stat,
-    sync::{Arc, LazyLock, OnceLock},
+    sync::{LazyLock, OnceLock},
     time::Duration,
 };
 
 use async_trait::async_trait;
-use disruptor::{
-    MultiProducer, MultiProducerBarrier, ProcessorSettings, SingleConsumerBarrier, Sleep,
-    builder::{NC, multi::MPBuilder},
-};
+use disruptor::{MultiProducer, ProcessorSettings, SingleConsumerBarrier, Sleep};
 use futures_util::future;
-use rust_decimal::{
-    Decimal, MathematicalOps,
-    prelude::{self, FromPrimitive, One},
-};
+use rust_decimal::{Decimal, MathematicalOps, prelude::FromPrimitive};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
@@ -27,6 +25,15 @@ use crate::{
     exchange::{self, Exchange},
     strategy::Strategy,
 };
+
+/// i decided to have this objects static to avoid lifetime headaches and complains
+/// by the rust compiler. my vision was to have something like a singleton.
+static DISRUPTOR_PRODUCER: OnceLock<MultiProducer<Message, SingleConsumerBarrier>> =
+    OnceLock::new();
+static MQTT_TX: OnceLock<Sender<Message>> = OnceLock::new();
+static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
+
+static STATE: LazyLock<State> = LazyLock::new(|| State(UnsafeCell::new(HashMap::new())));
 
 pub struct AvellanedaStoikovMarketMaking {}
 
@@ -85,6 +92,10 @@ impl AvellanedaStoikovMarketMaking {
         }
     }
 
+    /// `disruptor` callback 
+    /// 
+    /// we can afford `unsafe` code here because the `disruptor` architecture ensures that each `Message` is 
+    /// processed sequentially
     fn handle_message(message: &Message) {
         tracing::debug!("{:#?}", message);
 
@@ -163,13 +174,6 @@ impl AvellanedaStoikovMarketMaking {
 struct State(UnsafeCell<HashMap<String, Decimal>>);
 unsafe impl Sync for State {}
 
-pub static DISRUPTOR_PRODUCER: OnceLock<MultiProducer<Message, SingleConsumerBarrier>> =
-    OnceLock::new();
-
-pub static MQTT_TX: OnceLock<Sender<Message>> = OnceLock::new();
-pub static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
-
-static STATE: LazyLock<State> = LazyLock::new(|| State(UnsafeCell::new(HashMap::new())));
 
 #[async_trait]
 impl Strategy for AvellanedaStoikovMarketMaking {
@@ -186,7 +190,7 @@ impl Strategy for AvellanedaStoikovMarketMaking {
             Sleep::new(Duration::from_millis(1)),
         )
         .pin_at_core(1)
-        .handle_events_with(|message, seq, batch| {
+        .handle_events_with(|message, _seq, _batch| {
             AvellanedaStoikovMarketMaking::handle_message(message)
         })
         .build();

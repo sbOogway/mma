@@ -1,3 +1,7 @@
+//! `mqtt` module is responsible to publish data to the broker
+//! 
+//! the current design of the system implies that data is only published and never read.
+
 use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
 use rust_decimal::prelude::ToPrimitive;
 use tokio::sync::mpsc;
@@ -47,17 +51,73 @@ impl MqttPublisher {
         while let Some(msg) = rx.recv().await {
             match msg {
                 Message::TradeUpdate(t) => {
-                    Self::publish_to_topic(&client, &config, &t.exchange, &t.symbol, "price", t.price).await;
+                    Self::publish_to_topic(
+                        &client,
+                        &config,
+                        &t.exchange,
+                        &t.symbol,
+                        "price",
+                        t.price,
+                    )
+                    .await;
                 }
                 Message::BboUpdate(b) => {
-                    Self::publish_to_topic(&client, &config, &b.exchange, &b.symbol, "bid", b.bid_price).await;
-                    Self::publish_to_topic(&client, &config, &b.exchange, &b.symbol, "ask", b.ask_price).await;
-                    Self::publish_to_topic(&client, &config, &b.exchange, &b.symbol, "mid_price", b.mid_price).await;
+                    Self::publish_to_topic(
+                        &client,
+                        &config,
+                        &b.exchange,
+                        &b.symbol,
+                        "bid",
+                        b.bid_price,
+                    )
+                    .await;
+                    Self::publish_to_topic(
+                        &client,
+                        &config,
+                        &b.exchange,
+                        &b.symbol,
+                        "ask",
+                        b.ask_price,
+                    )
+                    .await;
+                    Self::publish_to_topic(
+                        &client,
+                        &config,
+                        &b.exchange,
+                        &b.symbol,
+                        "mid_price",
+                        b.mid_price,
+                    )
+                    .await;
                 }
                 Message::AsmmQuote(q) => {
-                    Self::publish_to_topic(&client, &config, &q.exchange, &q.symbol, "reservation_price", q.reservation_price).await;
-                    Self::publish_to_topic(&client, &config, &q.exchange, &q.symbol, "asmm_bid_price", q.asmm_bid_price).await;
-                    Self::publish_to_topic(&client, &config, &q.exchange, &q.symbol, "asmm_ask_price", q.asmm_ask_price).await;
+                    Self::publish_to_topic(
+                        &client,
+                        &config,
+                        &q.exchange,
+                        &q.symbol,
+                        "reservation_price",
+                        q.reservation_price,
+                    )
+                    .await;
+                    Self::publish_to_topic(
+                        &client,
+                        &config,
+                        &q.exchange,
+                        &q.symbol,
+                        "asmm_bid_price",
+                        q.asmm_bid_price,
+                    )
+                    .await;
+                    Self::publish_to_topic(
+                        &client,
+                        &config,
+                        &q.exchange,
+                        &q.symbol,
+                        "asmm_ask_price",
+                        q.asmm_ask_price,
+                    )
+                    .await;
                 }
                 Message::Empty => {}
             }
@@ -91,7 +151,9 @@ mod tests {
     use rust_decimal::Decimal;
 
     use super::*;
-    use crate::common_data_representation::message::{bbo_update::BboUpdate, trade_update::TradeUpdate};
+    use crate::common_data_representation::message::{
+        bbo_update::BboUpdate, trade_update::TradeUpdate,
+    };
 
     fn test_config(suffix: &str) -> MqttConfig {
         MqttConfig {
@@ -210,7 +272,6 @@ mod tests {
         let bid_price = Decimal::new(49900, 0);
         let ask_price = Decimal::new(50100, 0);
 
-
         tx.send(Message::BboUpdate(BboUpdate {
             exchange: "hyperliquid".into(),
             symbol: "BTC".into(),
@@ -219,8 +280,7 @@ mod tests {
             ask_price: Decimal::new(50100, 0),
             ask_size: Decimal::new(5, 0),
             time: 1234567890,
-            mid_price: bid_price + ask_price / Decimal::new(2, 0)
-            
+            mid_price: bid_price + ask_price / Decimal::new(2, 0),
         }))
         .await
         .unwrap();
