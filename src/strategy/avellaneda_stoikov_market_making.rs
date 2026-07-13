@@ -19,6 +19,19 @@ use crate::{
     strategy::Strategy,
 };
 
+/// i decided to have this objects static to avoid lifetime headaches and complains
+/// by the rust compiler. my vision was to have something like a singleton.
+static DISRUPTOR_PRODUCER: OnceLock<MultiProducer<Message, SingleConsumerBarrier>> =
+    OnceLock::new();
+static MQTT_TX: OnceLock<Sender<Message>> = OnceLock::new();
+static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
+
+static STATE: LazyLock<State> = LazyLock::new(|| State(UnsafeCell::new(HashMap::new())));
+
+/// this is the paper we take this strategy from 
+/// 
+/// <https://people.orie.cornell.edu/sfs33/LimitOrderBook.pdf>
+/// <https://doi.org/10.1080/14697680701381228>
 pub struct AvellanedaStoikovMarketMaking {}
 
 impl AvellanedaStoikovMarketMaking {
@@ -76,6 +89,10 @@ impl AvellanedaStoikovMarketMaking {
         }
     }
 
+    /// `disruptor` callback 
+    /// 
+    /// we can afford `unsafe` code here because the `disruptor` architecture ensures that each `Message` is 
+    /// processed sequentially
     fn handle_message(message: &Message) {
         tracing::debug!("{:#?}", message);
 
@@ -154,13 +171,6 @@ impl AvellanedaStoikovMarketMaking {
 struct State(UnsafeCell<HashMap<String, Decimal>>);
 unsafe impl Sync for State {}
 
-pub static DISRUPTOR_PRODUCER: OnceLock<MultiProducer<Message, SingleConsumerBarrier>> =
-    OnceLock::new();
-
-pub static MQTT_TX: OnceLock<Sender<Message>> = OnceLock::new();
-pub static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
-
-static STATE: LazyLock<State> = LazyLock::new(|| State(UnsafeCell::new(HashMap::new())));
 
 #[async_trait]
 impl Strategy for AvellanedaStoikovMarketMaking {
