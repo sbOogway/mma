@@ -1,4 +1,4 @@
-#![warn(mixed_script_confusables)]
+#![allow(mixed_script_confusables)]
 
 use tracing_subscriber::EnvFilter;
 

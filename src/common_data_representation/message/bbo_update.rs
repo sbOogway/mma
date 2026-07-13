@@ -9,5 +9,5 @@ pub struct BboUpdate {
     pub ask_price: Decimal,
     pub ask_size: Decimal,
     pub time: u64,
-    pub mid_price: Decimal
+    pub mid_price: Decimal,
 }

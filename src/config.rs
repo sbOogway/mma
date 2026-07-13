@@ -49,7 +49,7 @@ pub struct StrategyConfigs {
 pub struct AvellanedaStoikovConfig {
     pub γ: Decimal,
     pub κ: Decimal,
-    pub σ: Decimal
+    pub σ: Decimal,
 }
 
 impl AppConfig {

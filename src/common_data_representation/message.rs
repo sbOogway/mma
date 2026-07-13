@@ -18,5 +18,4 @@ impl Message {
     pub fn empty() -> Self {
         Self::Empty
     }
-
 }

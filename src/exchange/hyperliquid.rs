@@ -9,7 +9,9 @@ use rust_decimal::{Decimal, prelude::Zero};
 use std::str::FromStr;
 
 use crate::{
-    common_data_representation::message::{BboUpdate, Message as AppMessage, TradeUpdate}, config::HyperliquidConfig, exchange::{DataProvider, Exchange, Executor, Infos},
+    common_data_representation::message::{BboUpdate, Message as AppMessage, TradeUpdate},
+    config::HyperliquidConfig,
+    exchange::{DataProvider, Exchange, Executor, Infos},
 };
 
 const WS_URL: &str = "wss://api.hyperliquid.xyz/ws";
@@ -205,7 +207,7 @@ impl DataProvider for Hyperliquid {
                                 ask_price,
                                 ask_size,
                                 time: bbo.time,
-                                mid_price: Decimal::zero()
+                                mid_price: Decimal::zero(),
                             });
                             disruptor.publish(|slot: &mut AppMessage| {
                                 *slot = bbo_msg;

@@ -1,23 +1,14 @@
-use core::panic;
 use std::{
     cell::UnsafeCell,
     collections::HashMap,
-    fmt::format,
-    os::linux::raw::stat,
-    sync::{Arc, LazyLock, OnceLock},
+    sync::{LazyLock, OnceLock},
     time::Duration,
 };
 
 use async_trait::async_trait;
-use disruptor::{
-    MultiProducer, MultiProducerBarrier, ProcessorSettings, SingleConsumerBarrier, Sleep,
-    builder::{NC, multi::MPBuilder},
-};
+use disruptor::{MultiProducer, ProcessorSettings, SingleConsumerBarrier, Sleep};
 use futures_util::future;
-use rust_decimal::{
-    Decimal, MathematicalOps,
-    prelude::{self, FromPrimitive, One},
-};
+use rust_decimal::{Decimal, MathematicalOps, prelude::FromPrimitive};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
@@ -186,7 +177,7 @@ impl Strategy for AvellanedaStoikovMarketMaking {
             Sleep::new(Duration::from_millis(1)),
         )
         .pin_at_core(1)
-        .handle_events_with(|message, seq, batch| {
+        .handle_events_with(|message, _seq, _batch| {
             AvellanedaStoikovMarketMaking::handle_message(message)
         })
         .build();
