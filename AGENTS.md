@@ -17,7 +17,7 @@
 - `cargo test` — run all tests (including `tests/check_deps.rs` which checks for circular dependencies)
 - `cargo tt` — runs tests with `-- --nocapture` (alias in `.cargo/config.toml`)
 - `cargo build --release` — release build
-- Integration test `tests/check_deps.rs` requires `cargo modules` and `tred` (graphviz)
+- Integration test `tests/check_deps.rs` requires `cargo modules` and `tred` (graphviz); runs on `--lib` target
 - MQTT tests in `common_data_representation::mqtt::tests` are skipped unless broker is at `localhost:1883` (start via `docker compose up -d`)
 - Hyperliquid integration tests (`connect_and_receive_trades`, `ping_latency_under_500ms`) need network access
 

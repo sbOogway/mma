@@ -6,7 +6,7 @@ use std::{
 #[test]
 fn no_circular_dependencies() {
     let dot = Command::new("cargo")
-        .args(["modules", "dependencies", "--no-fns"])
+        .args(["modules", "dependencies", "--lib", "--no-fns"])
         .output()
         .expect("failed to run `cargo modules dependencies`");
 
