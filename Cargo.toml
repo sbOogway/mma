@@ -1,10 +1,13 @@
 [package]
 name = "mma"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "market making and arbitrage framework"
 license = "MIT"
 repository = "https://github.com/sbOogway/mma"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--document-private-items"]
 
 [dependencies]
 disruptor = "4.3.0"
