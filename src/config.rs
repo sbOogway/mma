@@ -1,3 +1,6 @@
+//! `config` module is responsible for parsing the configuration, in order to modify the behaviour
+//! of the system at runtime, without the need for recompilation.
+
 use rust_decimal::Decimal;
 use serde::Deserialize;
 

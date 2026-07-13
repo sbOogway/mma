@@ -1,3 +1,8 @@
+//! `exchange` module is responsible to interact with an exchange, that can be a dex, a cex,
+//! a prediction market or anything really. It is responsible for data gathering (candles, ticks, order book) 
+//! over various protocols (e.g. Websocket, FIX), sending, deleting and modyfing orders and checking
+//! balances.
+
 pub mod hyperliquid;
 
 use std::{future::Future, pin::Pin};

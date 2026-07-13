@@ -1,3 +1,6 @@
+//! `strategy` is the main component of the package. It is responsible for coordinating the exchanges, 
+//! sending `Message`s into the disruptor and execute the core logic.
+
 use crate::config::AppConfig;
 use async_trait::async_trait;
 
