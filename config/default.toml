@@ -1,5 +1,7 @@
 [exchange.hyperliquid]
 coins = ["ZEC", "BTC", "ETH", "SOL"]
+mainnet = true
+address = "0x83473ff587C2aeE4a55Fb3c396bD981D469f4236"
 
 [disruptor]
 buffer_size = 1024

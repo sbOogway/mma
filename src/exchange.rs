@@ -8,6 +8,7 @@ pub mod hyperliquid;
 use std::{future::Future, pin::Pin};
 
 use disruptor::{MultiProducer, SingleConsumerBarrier};
+use rust_decimal::Decimal;
 
 use crate::config::AppConfig;
 
@@ -16,8 +17,10 @@ use self::hyperliquid::Hyperliquid;
 use super::common_data_representation::message::Message;
 
 pub trait Executor {
-    fn send_order(&self);
+    fn create_order(&self);
+    fn update_order(&self);
     fn cancel_order(&self);
+    fn balance_of(&self, symbol: String);
 }
 
 pub trait DataProvider {

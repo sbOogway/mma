@@ -27,6 +27,8 @@ pub struct ExchangeConfigs {
 #[derive(Clone, Debug, Deserialize)]
 pub struct HyperliquidConfig {
     pub coins: Vec<String>,
+    pub mainnet: bool,
+    pub address: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
