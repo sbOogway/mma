@@ -49,6 +49,13 @@ exchange::DataProvider.listen() → disruptor (lock-free ring buffer) → strate
 - `run` spawns one tokio task per exchange calling `exchange.listen()`, then hangs on `future::pending()`
 - Disruptor is built with `pin_at_core(1)` and `Sleep` (1 ms polling)
 
+### Memory storage (`common_data_representation::memory_storage`)
+- `MemoryStorage<V>` trait — `set(key, value)` / `get(key) -> Option<V>`
+- `TtlBufferStorage<V>` trait — `set(key, value)` / `get(key) -> Option<Vec<V>>` (accumulates values with TTL)
+- Factory: `memory_storage::new(cfg, ttl)` returns `Box<dyn MemoryStorage<V>>`; `memory_storage::new_ttl_buffer(cfg, ttl)` returns `Box<dyn TtlBufferStorage<V>>`
+- Backends: `"hashmap"` (no TTL), `"redis"` (with TTL, via unix socket), `"ttl_buffer_hashmap"` (VecDeque-based, drains expired entries on read)
+- `HashMapStorage` and `TtlBufferHashMapStorage` are in-module; `RedisStorage` spawns a tokio background worker
+
 ### `Message` enum (in `common_data_representation::message`)
 - Variants: `Empty`, `TradeUpdate`, `BboUpdate`, `AsmmQuote`
 - Adding a new message type requires: variant in `Message` enum, handler arm in `handle_message`, and a match arm in `MqttPublisher::run` if it should be published
@@ -72,5 +79,5 @@ exchange::DataProvider.listen() → disruptor (lock-free ring buffer) → strate
 ## Notes
 - Rust edition 2024; crate has `#![allow(mixed_script_confusables)]`
 - Uses `rust_decimal` throughout (never `f64` for prices)
-- `UnsafeCell` + manual Sync impl is used for strategy state (justified by single-threaded disruptor consumer)
+- `OnceLock` + `Box<dyn MemoryStorage>` is used for strategy state
 - Developer: mattia, on Fedora, uses `podman` (alias `docker=podman` or substitute `podman` for `docker` in commands)
