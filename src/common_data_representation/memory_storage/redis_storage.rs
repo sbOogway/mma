@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use super::MemoryStorage;
+use super::MemoryMapStorage;
 
 pub struct RedisStorage<V> {
     ttl: Option<Duration>,
@@ -77,7 +77,7 @@ impl<V: Display + Send + Sync + 'static> RedisStorage<V> {
     }
 }
 
-impl<V: Display + Clone + Send + Sync + 'static> MemoryStorage<V> for RedisStorage<V> {
+impl<V: Display + Clone + Send + Sync + 'static> MemoryMapStorage<V> for RedisStorage<V> {
     fn set(&self, key: String, value: V) {
         let expires = self.ttl.map(|d| Instant::now() + d);
         self.cache

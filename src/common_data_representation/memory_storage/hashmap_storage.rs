@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use super::MemoryStorage;
+use super::MemoryMapStorage;
 
 pub struct HashMapStorage<V> {
     inner: RwLock<HashMap<String, V>>,
@@ -15,7 +15,7 @@ impl<V> HashMapStorage<V> {
     }
 }
 
-impl<V: Clone + Send + Sync> MemoryStorage<V> for HashMapStorage<V> {
+impl<V: Clone + Send + Sync> MemoryMapStorage<V> for HashMapStorage<V> {
     fn set(&self, key: String, value: V) {
         self.inner.write().unwrap().insert(key, value);
     }

@@ -14,7 +14,7 @@ use rust_decimal::{Decimal, MathematicalOps, prelude::FromPrimitive};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
-   common_data_representation::memory_storage::{self, MemoryStorage, TtlBufferStorage},
+    common_data_representation::memory_storage::{self, MemoryMapStorage, ExpirationBuffer},
     common_data_representation::message::{Message, asmm_quote::AsmmQuote},
     common_data_representation::mqtt::MqttPublisher,
     config::AppConfig,
@@ -31,11 +31,11 @@ static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
 
 /// is intended to store variables that change frequently (like q,
 /// best_bid, best_ask etc) and only need to store the last value of them.
-static STATE_STORAGE: OnceLock<Box<dyn MemoryStorage<Decimal>>> = OnceLock::new();
+static STATE_STORAGE: OnceLock<Box<dyn MemoryMapStorage<Decimal>>> = OnceLock::new();
 
 /// is intended to store trades that happen in the specified rolling time window. 
 /// we use tthese values to calculate γ and κ.
-static TRADES_STORAGE: OnceLock<Box<dyn TtlBufferStorage<Decimal>>> = OnceLock::new();
+static TRADES_STORAGE: OnceLock<Box<dyn ExpirationBuffer<Decimal>>> = OnceLock::new();
 
 pub struct AvellanedaStoikovMarketMaking {}
 
