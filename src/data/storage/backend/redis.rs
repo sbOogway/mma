@@ -1,33 +1,40 @@
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 
+use crate::data::storage::expiration_buffer::ExpirationBuffer;
 use crate::data::storage::memory_map::MemoryMap;
 
+static BUF_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 pub struct RedisMemoryMap<V> {
-    cache: Arc<RwLock<HashMap<String, (V, Option<Instant>)>>>,
-    _tx: mpsc::UnboundedSender<(String, V, Option<Duration>)>,
+    client: redis::Client,
+    tx: mpsc::UnboundedSender<(String, String, Option<Duration>)>,
+    _marker: std::marker::PhantomData<V>,
 }
 
-impl<V: Display + Send + Sync + 'static> RedisMemoryMap<V> {
+impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>
+    RedisMemoryMap<V>
+{
     pub fn new(socket_path: &str) -> Self {
-        let cache = Arc::new(RwLock::new(HashMap::new()));
+        let client =
+            redis::Client::open(format!("redis+unix://{}", socket_path)).expect("invalid redis url");
         let (tx, rx) = mpsc::unbounded_channel();
-        let cache_clone = cache.clone();
         let path = socket_path.to_string();
         tokio::spawn(async move {
-            Self::background_worker(path, rx, cache_clone).await;
+            Self::background_worker(path, rx).await;
         });
-        Self { cache, _tx: tx }
+        Self {
+            client,
+            tx,
+            _marker: std::marker::PhantomData,
+        }
     }
 
     async fn background_worker(
         socket_path: String,
-        mut rx: mpsc::UnboundedReceiver<(String, V, Option<Duration>)>,
-        _cache: Arc<RwLock<HashMap<String, (V, Option<Instant>)>>>,
+        mut rx: mpsc::UnboundedReceiver<(String, String, Option<Duration>)>,
     ) {
         let client = match redis::Client::open(format!("redis+unix://{}", socket_path)) {
             Ok(c) => c,
@@ -48,16 +55,15 @@ impl<V: Display + Send + Sync + 'static> RedisMemoryMap<V> {
         };
 
         while let Some((key, value, ttl)) = rx.recv().await {
-            let value_str = value.to_string();
             let result = if let Some(ttl) = ttl {
                 let secs = ttl.as_secs();
                 redis::cmd("SET")
-                    .arg(&[&key, &value_str, "EX", &secs.to_string()])
+                    .arg(&[&key, &value, "EX", &secs.to_string()])
                     .query_async::<()>(&mut conn)
                     .await
             } else {
                 redis::cmd("SET")
-                    .arg(&[&key, &value_str])
+                    .arg(&[&key, &value])
                     .query_async::<()>(&mut conn)
                     .await
             };
@@ -72,15 +78,93 @@ impl<V: Display + Send + Sync + 'static> RedisMemoryMap<V> {
     }
 }
 
-impl<V: Display + Clone + Send + Sync + 'static> MemoryMap<V> for RedisMemoryMap<V> {
-    fn set(&self, key: String, value: V) {}
+impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static> MemoryMap<V>
+    for RedisMemoryMap<V>
+{
+    fn set(&self, key: String, value: V) {
+        let json = serde_json::to_string(&value).expect("serialization failed");
+        let _ = self.tx.send((key, json, None));
+    }
 
     fn get(&self, key: &str) -> Option<V> {
-        let map = self.cache.read().unwrap();
-        match map.get(key) {
-            Some((_, Some(expires))) if *expires <= Instant::now() => None,
-            Some((value, _)) => Some(value.clone()),
-            None => None,
+        let mut conn = self.client.get_connection().ok()?;
+        let value: Option<String> = redis::cmd("GET").arg(key).query(&mut conn).ok()?;
+        value.map(|v| serde_json::from_str(&v).expect("deserialization failed"))
+    }
+}
+
+pub struct RedisExpirationBuffer<V> {
+    client: redis::Client,
+    key: String,
+    ttl: Duration,
+    _marker: std::marker::PhantomData<V>,
+}
+
+impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>
+    RedisExpirationBuffer<V>
+{
+    pub fn new(socket_path: &str, ttl: Duration) -> Self {
+        let client =
+            redis::Client::open(format!("redis+unix://{}", socket_path)).expect("invalid redis url");
+        let id = BUF_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let key = format!("mma:expiration_buffer:{id}");
+        Self {
+            client,
+            key,
+            ttl,
+            _marker: std::marker::PhantomData,
         }
+    }
+}
+
+impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static> ExpirationBuffer<V>
+    for RedisExpirationBuffer<V>
+{
+    fn add(&self, value: V) {
+        let json = serde_json::to_string(&value).expect("serialization failed");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        let mut conn = match self.client.get_connection() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(error = %e, "redis connection failed");
+                return;
+            }
+        };
+        let _: Result<(), _> = redis::cmd("ZADD")
+            .arg(&self.key)
+            .arg(now)
+            .arg(&json)
+            .query(&mut conn);
+    }
+
+    fn get(&self) -> Option<Box<dyn Iterator<Item = V>>> {
+        let mut conn = self.client.get_connection().ok()?;
+        let min_score = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            - self.ttl.as_secs_f64();
+        let values: Vec<String> = redis::cmd("ZRANGEBYSCORE")
+            .arg(&self.key)
+            .arg(min_score)
+            .arg("+inf")
+            .query(&mut conn)
+            .ok()?;
+        if values.is_empty() {
+            return None;
+        }
+        let _: Result<(), _> = redis::cmd("ZREMRANGEBYSCORE")
+            .arg(&self.key)
+            .arg("-inf")
+            .arg(min_score)
+            .query(&mut conn);
+        Some(Box::new(
+            values
+                .into_iter()
+                .map(|v| serde_json::from_str(&v).expect("deserialization failed")),
+        ))
     }
 }

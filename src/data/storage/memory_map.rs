@@ -1,7 +1,5 @@
 //! `memory_map` module provides the `MemoryMap` trait and factory for key-value storage backends.
 
-use std::fmt::Display;
-
 use crate::{
     config::AppConfig,
     data::storage::backend::{native::NativeMemoryMap, redis::RedisMemoryMap},
@@ -11,7 +9,7 @@ pub trait MemoryMap<V>: Send + Sync {
     fn set(&self, key: String, value: V);
     fn get(&self, key: &str) -> Option<V>;
 }
-pub fn new<V: Clone + Display + Send + Sync + 'static>(
+pub fn new<V: Clone + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>(
     backend: &str,
     cfg: Option<&AppConfig>,
 ) -> Box<dyn MemoryMap<V>> {
