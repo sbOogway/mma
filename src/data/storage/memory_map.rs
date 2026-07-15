@@ -1,4 +1,6 @@
-use std::{fmt::Display, time::Duration};
+//! `memory_map` module provides the `MemoryMap` trait and factory for key-value storage backends.
+
+use std::fmt::Display;
 
 use crate::{
     config::AppConfig,

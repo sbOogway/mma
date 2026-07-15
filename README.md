@@ -20,25 +20,27 @@ flowchart TD
             end
             
         end
-        subgraph common_data_representation
+        subgraph data
             disruptor
-            subgraph visualization
+            subgraph transception
                 direction LR
                 mqtt
                 grafana
             end
 
-            subgraph memory_storage
+            subgraph storage
                 direction LR
                 redis
-                hashmap
+                native
             end
 
-            subgraph message
+            subgraph types
                 direction LR
-            
-                bbo_update
-                trade_update
+                subgraph message
+                    direction LR
+                    bbo_update
+                    trade_update
+                end
             end
         end
 
@@ -54,16 +56,16 @@ flowchart TD
     end
 
     data_provider --> message
-    common_data_representation --> visualization
+    data --> transception
 
     message --> disruptor
     disruptor --> execution
-    disruptor --> memory_storage
-    memory_storage --> execution
+    disruptor --> storage
+    storage --> execution
 
     mqtt --> grafana
 
-    disruptor --> visualization
+    disruptor --> transception
 
     execution_logic --> executor
 ```
@@ -76,15 +78,15 @@ flowchart TD
         config --> exchange
 
         strategy --> exchange
-        strategy --> common_data_representation
+        strategy --> data
 
-        exchange --> common_data_representation
+        exchange --> data
 
-        common_data_representation --> message
-        common_data_representation --> mqtt
-        common_data_representation --> memory_storage
+        data --> types
+        data --> transception
+        data --> storage
 
-        memory_storage --> redis
+        storage --> redis
     end
 ```
 

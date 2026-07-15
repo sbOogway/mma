@@ -1,3 +1,6 @@
+//! `expiration_buffer` module provides the `ExpirationBuffer` trait and factory for
+//! time-windowed value accumulation with automatic TTL-based eviction.
+
 use std::time::Duration;
 
 use crate::data::storage::backend::native::NativeExpirationBuffer;
