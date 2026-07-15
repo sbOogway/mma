@@ -22,7 +22,11 @@ impl<V: Display + Send + Sync + 'static> RedisStorage<V> {
         tokio::spawn(async move {
             Self::background_worker(path, rx, cache_clone).await;
         });
-        Self { ttl, cache, _tx: tx }
+        Self {
+            ttl,
+            cache,
+            _tx: tx,
+        }
     }
 
     async fn background_worker(

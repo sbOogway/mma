@@ -1,3 +1,7 @@
+//! `memory_storage` module is responsible for managing connection to various
+//! memory backends, such as redis and various rust hashmaps. provides a single
+//! interchangeable api to easily switch among them.
+
 pub mod hashmap_storage;
 pub mod redis_storage;
 pub mod ttl_buffer_hashmap_storage;

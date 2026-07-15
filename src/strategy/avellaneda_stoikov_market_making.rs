@@ -14,7 +14,7 @@ use rust_decimal::{Decimal, MathematicalOps, prelude::FromPrimitive};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
-    common_data_representation::memory_storage::{self, MemoryStorage},
+   common_data_representation::memory_storage::{self, MemoryStorage, TtlBufferStorage},
     common_data_representation::message::{Message, asmm_quote::AsmmQuote},
     common_data_representation::mqtt::MqttPublisher,
     config::AppConfig,
@@ -22,16 +22,20 @@ use crate::{
     strategy::Strategy,
 };
 
-/// i decided to have this objects static to avoid lifetime headaches and complains
+/// i decided to have these objects static to avoid lifetime headaches and complains
 /// by the rust compiler. my vision was to have something like a singleton.
 static DISRUPTOR_PRODUCER: OnceLock<MultiProducer<Message, SingleConsumerBarrier>> =
     OnceLock::new();
 static MQTT_TX: OnceLock<Sender<Message>> = OnceLock::new();
 static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
 
-/// storage is intended to store variable that change frequently like q,
-/// best_bid, best_ask 
-static STORAGE_STATIC: OnceLock<Box<dyn MemoryStorage<Decimal>>> = OnceLock::new();
+/// is intended to store variables that change frequently (like q,
+/// best_bid, best_ask etc) and only need to store the last value of them.
+static STATE_STORAGE: OnceLock<Box<dyn MemoryStorage<Decimal>>> = OnceLock::new();
+
+/// is intended to store trades that happen in the specified rolling time window. 
+/// we use tthese values to calculate γ and κ.
+static TRADES_STORAGE: OnceLock<Box<dyn TtlBufferStorage<Decimal>>> = OnceLock::new();
 
 pub struct AvellanedaStoikovMarketMaking {}
 
@@ -48,7 +52,7 @@ impl AvellanedaStoikovMarketMaking {
     }
 
     fn init_state(cfg: &AppConfig) {
-        let state = &**STORAGE_STATIC.get().expect("storage not initialized");
+        let state = &**STATE_STORAGE.get().expect("storage not initialized");
 
         for exchange in EXCHANGES.get().unwrap() {
             for symbol in exchange.symbols() {
@@ -95,7 +99,7 @@ impl AvellanedaStoikovMarketMaking {
     fn handle_message(message: &Message) {
         tracing::debug!("{:#?}", message);
 
-        let state = &**STORAGE_STATIC.get().expect("storage not initialized");
+        let state = &**STATE_STORAGE.get().expect("storage not initialized");
 
         match message {
             Message::Empty => todo!(),
@@ -167,7 +171,7 @@ impl AvellanedaStoikovMarketMaking {
 #[async_trait]
 impl Strategy for AvellanedaStoikovMarketMaking {
     fn new(cfg: &AppConfig) -> Self {
-        let _ = STORAGE_STATIC.set(memory_storage::new(&cfg.memory_storage, None));
+        let _ = STATE_STORAGE.set(memory_storage::new(&cfg.memory_storage, None));
 
         if cfg.mqtt.enabled {
             let (mqtt_tx, mqtt_rx) = mpsc::channel(256);
