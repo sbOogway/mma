@@ -6,8 +6,8 @@ use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
 use rust_decimal::prelude::ToPrimitive;
 use tokio::sync::mpsc;
 
-use crate::common_data_representation::message::Message;
 use crate::config::MqttConfig;
+use crate::data::types::message::Message;
 
 pub struct MqttPublisher;
 
@@ -151,9 +151,7 @@ mod tests {
     use rust_decimal::Decimal;
 
     use super::*;
-    use crate::common_data_representation::message::{
-        bbo_update::BboUpdate, trade_update::TradeUpdate,
-    };
+    use crate::data::types::message::{bbo_update::BboUpdate, trade_update::TradeUpdate};
 
     fn test_config(suffix: &str) -> MqttConfig {
         MqttConfig {

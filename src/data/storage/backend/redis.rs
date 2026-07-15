@@ -5,16 +5,15 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use super::MemoryMapStorage;
+use crate::data::storage::memory_map::MemoryMap;
 
-pub struct RedisStorage<V> {
-    ttl: Option<Duration>,
+pub struct RedisMemoryMap<V> {
     cache: Arc<RwLock<HashMap<String, (V, Option<Instant>)>>>,
     _tx: mpsc::UnboundedSender<(String, V, Option<Duration>)>,
 }
 
-impl<V: Display + Send + Sync + 'static> RedisStorage<V> {
-    pub fn new(ttl: Option<Duration>, socket_path: &str) -> Self {
+impl<V: Display + Send + Sync + 'static> RedisMemoryMap<V> {
+    pub fn new(socket_path: &str) -> Self {
         let cache = Arc::new(RwLock::new(HashMap::new()));
         let (tx, rx) = mpsc::unbounded_channel();
         let cache_clone = cache.clone();
@@ -22,11 +21,7 @@ impl<V: Display + Send + Sync + 'static> RedisStorage<V> {
         tokio::spawn(async move {
             Self::background_worker(path, rx, cache_clone).await;
         });
-        Self {
-            ttl,
-            cache,
-            _tx: tx,
-        }
+        Self { cache, _tx: tx }
     }
 
     async fn background_worker(
@@ -77,17 +72,8 @@ impl<V: Display + Send + Sync + 'static> RedisStorage<V> {
     }
 }
 
-impl<V: Display + Clone + Send + Sync + 'static> MemoryMapStorage<V> for RedisStorage<V> {
-    fn set(&self, key: String, value: V) {
-        let expires = self.ttl.map(|d| Instant::now() + d);
-        self.cache
-            .write()
-            .unwrap()
-            .insert(key.clone(), (value.clone(), expires));
-        if let Err(e) = self._tx.send((key, value, self.ttl)) {
-            tracing::warn!(error = %e, "redis background channel send failed");
-        }
-    }
+impl<V: Display + Clone + Send + Sync + 'static> MemoryMap<V> for RedisMemoryMap<V> {
+    fn set(&self, key: String, value: V) {}
 
     fn get(&self, key: &str) -> Option<V> {
         let map = self.cache.read().unwrap();

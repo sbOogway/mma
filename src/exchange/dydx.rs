@@ -16,8 +16,8 @@ use rust_decimal::Decimal;
 use tokio::sync::watch;
 
 use crate::{
-    common_data_representation::message::{BboUpdate, Message as AppMessage, TradeUpdate},
     config::DydxConfig,
+    data::types::message::{BboUpdate, Message as AppMessage, TradeUpdate},
     exchange::{DataProvider, Exchange, Executor, Infos},
 };
 

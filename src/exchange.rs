@@ -15,7 +15,7 @@ use crate::config::AppConfig;
 use self::dydx::Dydx;
 use self::hyperliquid::Hyperliquid;
 
-use super::common_data_representation::message::Message;
+use super::data::types::message::Message;
 
 pub trait Executor {
     fn create_order(&self);

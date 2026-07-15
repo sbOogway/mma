@@ -14,10 +14,15 @@ use rust_decimal::{Decimal, MathematicalOps, prelude::FromPrimitive};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
-    common_data_representation::memory_storage::{self, MemoryMapStorage, ExpirationBuffer},
-    common_data_representation::message::{Message, asmm_quote::AsmmQuote},
-    common_data_representation::mqtt::MqttPublisher,
     config::AppConfig,
+    data::{
+        storage::{
+            expiration_buffer::{self, ExpirationBuffer},
+            memory_map::{self, MemoryMap},
+        },
+        transception::mqtt::MqttPublisher,
+        types::message::{Message, asmm_quote::AsmmQuote},
+    },
     exchange::{self, Exchange},
     strategy::Strategy,
 };
@@ -31,9 +36,9 @@ static EXCHANGES: OnceLock<Vec<Box<dyn Exchange>>> = OnceLock::new();
 
 /// is intended to store variables that change frequently (like q,
 /// best_bid, best_ask etc) and only need to store the last value of them.
-static STATE_STORAGE: OnceLock<Box<dyn MemoryMapStorage<Decimal>>> = OnceLock::new();
+static STATE_STORAGE: OnceLock<Box<dyn MemoryMap<Decimal>>> = OnceLock::new();
 
-/// is intended to store trades that happen in the specified rolling time window. 
+/// is intended to store trades that happen in the specified rolling time window.
 /// we use tthese values to calculate γ and κ.
 static TRADES_STORAGE: OnceLock<Box<dyn ExpirationBuffer<Decimal>>> = OnceLock::new();
 
@@ -52,7 +57,11 @@ impl AvellanedaStoikovMarketMaking {
     }
 
     fn init_state(cfg: &AppConfig) {
+        let _ = STATE_STORAGE.set(memory_map::new("native", None));
+        let _ = TRADES_STORAGE.set(expiration_buffer::new("native", Duration::from_mins(5)));
+
         let state = &**STATE_STORAGE.get().expect("storage not initialized");
+        let _trades = &**TRADES_STORAGE.get().expect("trades not initialized");
 
         for exchange in EXCHANGES.get().unwrap() {
             for symbol in exchange.symbols() {
@@ -171,8 +180,6 @@ impl AvellanedaStoikovMarketMaking {
 #[async_trait]
 impl Strategy for AvellanedaStoikovMarketMaking {
     fn new(cfg: &AppConfig) -> Self {
-        let _ = STATE_STORAGE.set(memory_storage::new(&cfg.memory_storage, None));
-
         if cfg.mqtt.enabled {
             let (mqtt_tx, mqtt_rx) = mpsc::channel(256);
             tokio::spawn(MqttPublisher::run(cfg.mqtt.clone(), mqtt_rx));
