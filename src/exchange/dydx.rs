@@ -8,16 +8,18 @@ use std::{future::Future, pin::Pin, sync::OnceLock};
 use bigdecimal::BigDecimal as BigDec;
 use disruptor::{MultiProducer, Producer, SingleConsumerBarrier};
 use dydx::indexer::{
-    IndexerClient, IndexerConfig, OrderSide, OrdersMessage, RestConfig, SockConfig, Subaccount,
-    SubaccountsMessage, Ticker, TradesMessage,
+    IndexerClient, IndexerConfig, OrderSide, OrdersMessage, PositionSide, RestConfig, SockConfig,
+    Subaccount, SubaccountsMessage, Ticker, TradesMessage,
 };
 use dydx::node::Wallet;
 use rust_decimal::Decimal;
 use tokio::sync::watch;
 
 use crate::{
-    common_data_representation::message::{BboUpdate, Message as AppMessage, TradeUpdate},
     config::DydxConfig,
+    data::types::message::{
+        BalanceUpdate, BboUpdate, Message as AppMessage, PositionInfo, TradeUpdate,
+    },
     exchange::{DataProvider, Exchange, Executor, Infos},
 };
 
@@ -146,7 +148,7 @@ async fn handle_orders_feed(
         }
 
         if best_bid_price > Decimal::ZERO && best_ask_price > Decimal::ZERO {
-            let mid = (&best_bid_price + &best_ask_price) / Decimal::new(2, 0);
+            let mid = (best_bid_price + best_ask_price) / Decimal::new(2, 0);
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -171,7 +173,14 @@ async fn handle_orders_feed(
     }
 }
 
-async fn handle_subaccounts_feed(mut feed: dydx::indexer::Feed<SubaccountsMessage>) {
+async fn handle_subaccounts_feed(
+    mut disruptor: MultiProducer<AppMessage, SingleConsumerBarrier>,
+    mut feed: dydx::indexer::Feed<SubaccountsMessage>,
+) {
+    let mut address = String::new();
+    let mut balances = std::collections::HashMap::new();
+    let mut positions = std::collections::HashMap::new();
+
     while let Some(msg) = feed.recv().await {
         match msg {
             SubaccountsMessage::Initial(init) => {
@@ -180,9 +189,97 @@ async fn handle_subaccounts_feed(mut feed: dydx::indexer::Feed<SubaccountsMessag
                 if let Some(tx) = BALANCE_TX.get() {
                     let _ = tx.send(equity);
                 }
+
+                address = String::from(init.contents.subaccount.address.clone());
+                balances.clear();
+                for (ticker, pos) in &init.contents.subaccount.asset_positions {
+                    let balance = bd_to_dec(&pos.size.0);
+                    let balance = match pos.side {
+                        PositionSide::Short => -balance,
+                        PositionSide::Long => balance,
+                    };
+                    balances.insert(ticker.0.clone(), balance);
+                }
+
+                positions.clear();
+                for (market, pos) in &init.contents.subaccount.open_perpetual_positions {
+                    let size = match pos.side {
+                        PositionSide::Short => -bd_to_dec(&pos.size.0),
+                        PositionSide::Long => bd_to_dec(&pos.size.0),
+                    };
+                    let entry_price = bd_to_dec(&pos.entry_price.0);
+                    let realized_pnl = bd_to_dec(&pos.realized_pnl);
+                    let unrealized_pnl = bd_to_dec(&pos.unrealized_pnl);
+                    positions.insert(
+                        market.0.clone(),
+                        PositionInfo {
+                            size,
+                            entry_price,
+                            realized_pnl,
+                            unrealized_pnl,
+                            net_funding: bd_to_dec(&pos.net_funding),
+                            value: size * entry_price + realized_pnl + unrealized_pnl,
+                        },
+                    );
+                }
+
+                let update = BalanceUpdate {
+                    exchange: "dydx".into(),
+                    address: address.clone(),
+                    balances: balances.clone(),
+                    positions: positions.clone(),
+                };
+                disruptor.publish(|slot: &mut AppMessage| {
+                    *slot = AppMessage::BalanceUpdate(update);
+                });
             }
-            SubaccountsMessage::Update(_) => {
-                tracing::info!("dydx subaccount update received");
+            SubaccountsMessage::Update(upd) => {
+                for content in &upd.contents {
+                    if let Some(asset_positions) = &content.asset_positions {
+                        for pos in asset_positions {
+                            let balance = bd_to_dec(&pos.size.0);
+                            let balance = match pos.side {
+                                PositionSide::Short => -balance,
+                                PositionSide::Long => balance,
+                            };
+                            balances.insert(pos.symbol.0.clone(), balance);
+                        }
+                    }
+                    if let Some(perp_positions) = &content.perpetual_positions {
+                        for pos in perp_positions {
+                            let size = match pos.side {
+                                PositionSide::Short => -bd_to_dec(&pos.size.0),
+                                PositionSide::Long => bd_to_dec(&pos.size.0),
+                            };
+                            let entry_price = bd_to_dec(&pos.entry_price.0);
+                            let realized_pnl =
+                                pos.realized_pnl.as_ref().map_or(Decimal::ZERO, bd_to_dec);
+                            let unrealized_pnl =
+                                pos.unrealized_pnl.as_ref().map_or(Decimal::ZERO, bd_to_dec);
+                            positions.insert(
+                                pos.market.0.clone(),
+                                PositionInfo {
+                                    size,
+                                    entry_price,
+                                    realized_pnl,
+                                    unrealized_pnl,
+                                    net_funding: bd_to_dec(&pos.net_funding),
+                                    value: size * entry_price + realized_pnl + unrealized_pnl,
+                                },
+                            );
+                        }
+                    }
+                }
+
+                let update = BalanceUpdate {
+                    exchange: "dydx".into(),
+                    address: address.clone(),
+                    balances: balances.clone(),
+                    positions: positions.clone(),
+                };
+                disruptor.publish(|slot: &mut AppMessage| {
+                    *slot = AppMessage::BalanceUpdate(update);
+                });
             }
         }
     }
@@ -280,8 +377,9 @@ impl DataProvider for Dydx {
 
             match indexer.feed().subaccounts(subaccount, false).await {
                 Ok(feed) => {
+                    let d = d.clone();
                     handles.push(tokio::spawn(async move {
-                        handle_subaccounts_feed(feed).await;
+                        handle_subaccounts_feed(d, feed).await;
                     }));
                 }
                 Err(e) => {
@@ -311,7 +409,7 @@ impl Executor for Dydx {
         todo!()
     }
 
-    fn balance_of(&self, _symbol: String) {
+    fn balance_of(&self, _symbol: Option<String>) {
         let equity = *self.balance_rx.borrow();
         tracing::info!(%equity, "dydx balance");
     }

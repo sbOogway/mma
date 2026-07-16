@@ -15,13 +15,13 @@ use crate::config::AppConfig;
 use self::dydx::Dydx;
 use self::hyperliquid::Hyperliquid;
 
-use super::common_data_representation::message::Message;
+use super::data::types::message::Message;
 
 pub trait Executor {
     fn create_order(&self);
     fn update_order(&self);
     fn cancel_order(&self);
-    fn balance_of(&self, symbol: String);
+    fn balance_of(&self, symbol: Option<String>);
 }
 
 pub trait DataProvider {

@@ -15,8 +15,8 @@ use rust_decimal::{Decimal, prelude::Zero};
 use std::str::FromStr;
 
 use crate::{
-    common_data_representation::message::{BboUpdate, Message as AppMessage, TradeUpdate},
     config::HyperliquidConfig,
+    data::types::message::{BboUpdate, Message as AppMessage, TradeUpdate},
     exchange::{DataProvider, Exchange, Executor, Infos},
 };
 
@@ -278,7 +278,7 @@ impl Executor for Hyperliquid {
         todo!()
     }
 
-    fn balance_of(&self, _symbol: String) {
+    fn balance_of(&self, _symbol: Option<String>) {
         let request = serde_json::json!({
             "method": "post",
             "id": 0,

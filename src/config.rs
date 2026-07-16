@@ -83,6 +83,9 @@ impl AppConfig {
     pub fn load() -> Result<Self, config::ConfigError> {
         config::Config::builder()
             .add_source(config::File::with_name("config/default"))
+            .add_source(
+                config::File::new("config/secrets.toml", config::FileFormat::Toml).required(false),
+            )
             .add_source(config::File::with_name("config/local").required(false))
             .add_source(config::Environment::with_prefix("MMA"))
             .build()?

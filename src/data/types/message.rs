@@ -1,10 +1,12 @@
 //! `message` module is responsible to encompass all subtypes under a single `enum`.
 
 pub mod asmm_quote;
+pub mod balance_update;
 pub mod bbo_update;
 pub mod trade_update;
 
 pub use asmm_quote::AsmmQuote;
+pub use balance_update::{BalanceUpdate, PositionInfo};
 pub use bbo_update::BboUpdate;
 pub use trade_update::TradeUpdate;
 
@@ -14,6 +16,7 @@ pub enum Message {
     TradeUpdate(TradeUpdate),
     BboUpdate(BboUpdate),
     AsmmQuote(AsmmQuote),
+    BalanceUpdate(BalanceUpdate),
 }
 
 impl Message {
@@ -61,6 +64,19 @@ mod tests {
     }
 
     #[test]
+    fn balance_update_variant() {
+        let mut balances = std::collections::HashMap::new();
+        balances.insert("USDC".into(), Decimal::new(5000, 0));
+        let msg = Message::BalanceUpdate(BalanceUpdate {
+            exchange: "dydx".into(),
+            address: "dydx14zzueazeh0hj67cghhf9jypslcf9sh2n5k6art".into(),
+            balances,
+            positions: std::collections::HashMap::new(),
+        });
+        assert!(matches!(msg, Message::BalanceUpdate(_)));
+    }
+
+    #[test]
     fn asmm_quote_variant() {
         let msg = Message::AsmmQuote(AsmmQuote {
             exchange: "hyperliquid".into(),
@@ -101,6 +117,12 @@ mod tests {
                 asmm_bid_price: Decimal::ONE,
                 asmm_ask_price: Decimal::TWO,
             }),
+            Message::BalanceUpdate(BalanceUpdate {
+                exchange: "a".into(),
+                address: "addr".into(),
+                balances: std::collections::HashMap::new(),
+                positions: std::collections::HashMap::new(),
+            }),
         ];
         for msg in &msgs {
             assert_eq!(format!("{msg:?}"), format!("{:?}", msg.clone()));
@@ -129,5 +151,6 @@ mod tests {
         assert!(!matches!(e, Message::TradeUpdate(_)));
         assert!(!matches!(e, Message::BboUpdate(_)));
         assert!(!matches!(e, Message::AsmmQuote(_)));
+        assert!(!matches!(e, Message::BalanceUpdate(_)));
     }
 }
