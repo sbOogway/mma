@@ -9,7 +9,7 @@ use crate::data::storage::backend::redis::RedisExpirationBuffer;
 
 pub trait ExpirationBuffer<V>: Send + Sync {
     fn add(&self, value: V);
-    fn get(&self) -> Option<Box<dyn Iterator<Item = V>>>;
+    fn get(&self) -> Box<dyn Iterator<Item = V>>;
 }
 
 pub fn new<V: Clone + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>(

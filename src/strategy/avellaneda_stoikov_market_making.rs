@@ -80,27 +80,13 @@ impl AvellanedaStoikovMarketMaking {
                 );
 
                 let σ_key = format!("{}_{}_σ", exchange.name(), symbol);
-                state.set(
-                    σ_key,
-                    cfg.strategy
-                        .avellaneda_stoikov_market_making
-                        .as_ref()
-                        .unwrap()
-                        .σ,
-                );
+                state.set(σ_key, Decimal::ONE);
 
                 let κ_key = format!("{}_{}_κ", exchange.name(), symbol);
-                state.set(
-                    κ_key,
-                    cfg.strategy
-                        .avellaneda_stoikov_market_making
-                        .as_ref()
-                        .unwrap()
-                        .κ,
-                );
+                state.set(κ_key, Decimal::ONE);
 
                 let q_key = format!("{}_{}_q", exchange.name(), symbol);
-                state.set(q_key, Decimal::from_f64(0.1).unwrap());
+                state.set(q_key, Decimal::ZERO);
             }
         }
     }
@@ -113,10 +99,16 @@ impl AvellanedaStoikovMarketMaking {
         tracing::debug!("{:#?}", message);
 
         let state = &**STATE_STORAGE.get().expect("storage not initialized");
+        let trades = &**TRADES_STORAGE.get().expect("trades not initialized");
 
         match message {
             Message::BalanceUpdate(update) => {
-                tracing::info!("{:#?}", update)
+                tracing::info!("{:#?}", update);
+
+                for (symbol, position) in &update.positions {
+                    let q_key = format!("{}_{}_q", update.exchange, symbol);
+                    state.set(q_key, position.value);
+                }
             }
             Message::Empty => todo!(),
             Message::AsmmQuote(_) => todo!(),
@@ -125,6 +117,8 @@ impl AvellanedaStoikovMarketMaking {
                 let key = format!("{}_{}", update.exchange, update.symbol);
 
                 state.set(key, update.price);
+
+                trades.add(update.price);
 
                 if let Some(tx) = MQTT_TX.get() {
                     let _ = tx.try_send(message.clone());

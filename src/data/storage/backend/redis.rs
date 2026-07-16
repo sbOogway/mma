@@ -138,29 +138,38 @@ impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static> 
             .query(&mut conn);
     }
 
-    fn get(&self) -> Option<Box<dyn Iterator<Item = V>>> {
-        let mut conn = self.client.get_connection().ok()?;
+    fn get(&self) -> Box<dyn Iterator<Item = V>> {
+        let mut conn = match self.client.get_connection() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(error = %e, "redis connection failed");
+                return Box::new(std::iter::empty());
+            }
+        };
         let min_score = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs_f64()
             - self.ttl.as_secs_f64();
-        let values: Vec<String> = redis::cmd("ZRANGEBYSCORE")
+        let values: Vec<String> = match redis::cmd("ZRANGEBYSCORE")
             .arg(&self.key)
             .arg(min_score)
             .arg("+inf")
             .query(&mut conn)
-            .ok()?;
-        if values.is_empty() {
-            return None;
-        }
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "redis query failed");
+                return Box::new(std::iter::empty());
+            }
+        };
         let _: Result<(), _> = redis::cmd("ZREMRANGEBYSCORE")
             .arg(&self.key)
             .arg("-inf")
             .arg(min_score)
             .query(&mut conn);
-        Some(Box::new(values.into_iter().map(|v| {
+        Box::new(values.into_iter().map(|v| {
             serde_json::from_str(&v).expect("deserialization failed")
-        })))
+        }))
     }
 }

@@ -55,7 +55,7 @@ impl<V: Clone + Send + Sync + 'static> ExpirationBuffer<V> for NativeExpirationB
         list.push_back((Instant::now(), value));
     }
 
-    fn get(&self) -> Option<Box<dyn Iterator<Item = V>>> {
+    fn get(&self) -> Box<dyn Iterator<Item = V>> {
         let mut list = self.inner.write().unwrap();
 
         while let Some(front) = list.front() {
@@ -67,12 +67,8 @@ impl<V: Clone + Send + Sync + 'static> ExpirationBuffer<V> for NativeExpirationB
             }
         }
 
-        if list.is_empty() {
-            return None;
-        }
-
         let values: Vec<V> = list.iter().map(|(_, v)| v.clone()).collect();
-        Some(Box::new(values.into_iter()))
+        Box::new(values.into_iter())
     }
 }
 
@@ -86,25 +82,22 @@ mod tests {
         buf.add(1);
         buf.add(2);
         buf.add(3);
-        assert_eq!(
-            buf.get().map(|i| i.collect::<Vec<_>>()),
-            Some(vec![1, 2, 3])
-        );
+        assert_eq!(buf.get().collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 
     #[test]
-    fn get_returns_none_when_empty() {
+    fn get_returns_empty_when_empty() {
         let buf = NativeExpirationBuffer::<i32>::new(Duration::from_secs(2));
-        assert_eq!(buf.get().map(|i| i.collect::<Vec<_>>()), None);
+        assert!(buf.get().collect::<Vec<_>>().is_empty());
     }
 
     #[test]
     fn elements_expire_after_ttl() {
         let buf = NativeExpirationBuffer::new(Duration::from_millis(10));
         buf.add(42);
-        assert_eq!(buf.get().map(|i| i.collect::<Vec<_>>()), Some(vec![42]));
+        assert_eq!(buf.get().collect::<Vec<_>>(), vec![42]);
         std::thread::sleep(Duration::from_millis(20));
-        assert_eq!(buf.get().map(|i| i.collect::<Vec<_>>()), None);
+        assert!(buf.get().collect::<Vec<_>>().is_empty());
     }
 
     #[test]
@@ -114,6 +107,6 @@ mod tests {
         buf.add(2);
         std::thread::sleep(Duration::from_millis(20));
         buf.add(3);
-        assert_eq!(buf.get().map(|i| i.collect::<Vec<_>>()), Some(vec![3]));
+        assert_eq!(buf.get().collect::<Vec<_>>(), vec![3]);
     }
 }
