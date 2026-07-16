@@ -47,10 +47,7 @@ mod tests {
             positions,
         };
         assert_eq!(b.exchange, "dydx");
-        assert_eq!(
-            b.address,
-            "dydx14zzueazeh0hj67cghhf9jypslcf9sh2n5k6art"
-        );
+        assert_eq!(b.address, "dydx14zzueazeh0hj67cghhf9jypslcf9sh2n5k6art");
         assert_eq!(b.balances.get("USDC"), Some(&Decimal::new(10000, 0)));
         assert_eq!(b.balances.get("BTC"), Some(&Decimal::new(1, 0)));
         let btc_pos = b.positions.get("BTC-USD").unwrap();

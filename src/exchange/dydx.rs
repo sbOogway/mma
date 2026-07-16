@@ -148,7 +148,7 @@ async fn handle_orders_feed(
         }
 
         if best_bid_price > Decimal::ZERO && best_ask_price > Decimal::ZERO {
-            let mid = (&best_bid_price + &best_ask_price) / Decimal::new(2, 0);
+            let mid = (best_bid_price + best_ask_price) / Decimal::new(2, 0);
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -252,14 +252,10 @@ async fn handle_subaccounts_feed(
                                 PositionSide::Long => bd_to_dec(&pos.size.0),
                             };
                             let entry_price = bd_to_dec(&pos.entry_price.0);
-                            let realized_pnl = pos
-                                .realized_pnl
-                                .as_ref()
-                                .map_or(Decimal::ZERO, |v| bd_to_dec(v));
-                            let unrealized_pnl = pos
-                                .unrealized_pnl
-                                .as_ref()
-                                .map_or(Decimal::ZERO, |v| bd_to_dec(v));
+                            let realized_pnl =
+                                pos.realized_pnl.as_ref().map_or(Decimal::ZERO, bd_to_dec);
+                            let unrealized_pnl =
+                                pos.unrealized_pnl.as_ref().map_or(Decimal::ZERO, bd_to_dec);
                             positions.insert(
                                 pos.market.0.clone(),
                                 PositionInfo {

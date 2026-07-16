@@ -14,12 +14,10 @@ pub struct RedisMemoryMap<V> {
     _marker: std::marker::PhantomData<V>,
 }
 
-impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>
-    RedisMemoryMap<V>
-{
+impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static> RedisMemoryMap<V> {
     pub fn new(socket_path: &str) -> Self {
-        let client =
-            redis::Client::open(format!("redis+unix://{}", socket_path)).expect("invalid redis url");
+        let client = redis::Client::open(format!("redis+unix://{}", socket_path))
+            .expect("invalid redis url");
         let (tx, rx) = mpsc::unbounded_channel();
         let path = socket_path.to_string();
         tokio::spawn(async move {
@@ -104,8 +102,8 @@ impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>
     RedisExpirationBuffer<V>
 {
     pub fn new(socket_path: &str, ttl: Duration) -> Self {
-        let client =
-            redis::Client::open(format!("redis+unix://{}", socket_path)).expect("invalid redis url");
+        let client = redis::Client::open(format!("redis+unix://{}", socket_path))
+            .expect("invalid redis url");
         let id = BUF_COUNTER.fetch_add(1, Ordering::Relaxed);
         let key = format!("mma:expiration_buffer:{id}");
         Self {
@@ -161,10 +159,8 @@ impl<V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static> 
             .arg("-inf")
             .arg(min_score)
             .query(&mut conn);
-        Some(Box::new(
-            values
-                .into_iter()
-                .map(|v| serde_json::from_str(&v).expect("deserialization failed")),
-        ))
+        Some(Box::new(values.into_iter().map(|v| {
+            serde_json::from_str(&v).expect("deserialization failed")
+        })))
     }
 }

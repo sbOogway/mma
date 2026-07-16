@@ -11,6 +11,12 @@ pub struct NativeMemoryMap<V> {
     inner: RwLock<HashMap<String, V>>,
 }
 
+impl<V> Default for NativeMemoryMap<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V> NativeMemoryMap<V> {
     pub fn new() -> Self {
         Self {

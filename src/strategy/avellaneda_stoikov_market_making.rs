@@ -46,14 +46,14 @@ pub struct AvellanedaStoikovMarketMaking {}
 
 impl AvellanedaStoikovMarketMaking {
     fn reservation_price(s: Decimal, q: Decimal, γ: Decimal, σ: Decimal) -> Decimal {
-        return s - q * γ * σ.powi(2);
+        s - q * γ * σ.powi(2)
     }
 
     fn optimal_spread(γ: Decimal, κ: Decimal) -> Decimal {
         let one = Decimal::ONE;
         let two = Decimal::from(2);
 
-        return two / γ * (one + (γ / κ)).ln();
+        two / γ * (one + (γ / κ)).ln()
     }
 
     fn init_state(cfg: &AppConfig) {
@@ -196,7 +196,7 @@ impl Strategy for AvellanedaStoikovMarketMaking {
 
         let disruptor_producer = disruptor::build_multi_producer(
             cfg.disruptor.buffer_size,
-            || Message::empty(),
+            Message::empty,
             Sleep::new(Duration::from_millis(1)),
         )
         .pin_at_core(1)
