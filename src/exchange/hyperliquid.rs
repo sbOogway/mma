@@ -278,7 +278,7 @@ impl Executor for Hyperliquid {
         todo!()
     }
 
-    fn balance_of(&self, _symbol: String) {
+    fn balance_of(&self, _symbol: Option<String>) {
         let request = serde_json::json!({
             "method": "post",
             "id": 0,

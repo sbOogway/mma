@@ -58,7 +58,11 @@ impl AvellanedaStoikovMarketMaking {
 
     fn init_state(cfg: &AppConfig) {
         let _ = STATE_STORAGE.set(memory_map::new("native", None));
-        let _ = TRADES_STORAGE.set(expiration_buffer::new("native", Duration::from_mins(5), None));
+        let _ = TRADES_STORAGE.set(expiration_buffer::new(
+            "native",
+            Duration::from_mins(5),
+            None,
+        ));
 
         let state = &**STATE_STORAGE.get().expect("storage not initialized");
         let _trades = &**TRADES_STORAGE.get().expect("trades not initialized");
@@ -111,9 +115,13 @@ impl AvellanedaStoikovMarketMaking {
         let state = &**STATE_STORAGE.get().expect("storage not initialized");
 
         match message {
+            Message::BalanceUpdate(update) => {
+                tracing::info!("{:#?}", update)
+            }
             Message::Empty => todo!(),
             Message::AsmmQuote(_) => todo!(),
             Message::TradeUpdate(update) => {
+                tracing::debug!("{:#?}", message);
                 let key = format!("{}_{}", update.exchange, update.symbol);
 
                 state.set(key, update.price);

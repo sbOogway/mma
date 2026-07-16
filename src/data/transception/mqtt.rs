@@ -119,6 +119,7 @@ impl MqttPublisher {
                     )
                     .await;
                 }
+                Message::BalanceUpdate(_) => {}
                 Message::Empty => {}
             }
         }

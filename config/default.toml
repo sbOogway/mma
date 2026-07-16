@@ -8,7 +8,6 @@ tickers = ["ETH-USD", "BTC-USD"]
 indexer_ws_endpoint = "wss://indexer.dydx.trade/v4/ws"
 subaccount_number = 0
 chain_id = "dydx-mainnet-1"
-mnemonic = "mirror actor skill push coach wait confirm orchard lunch mobile athlete gossip awake miracle matter bus reopen team ladder lazy list timber render wait"
 
 [memory_storage]
 backend = "hashmap"

@@ -21,7 +21,7 @@ pub trait Executor {
     fn create_order(&self);
     fn update_order(&self);
     fn cancel_order(&self);
-    fn balance_of(&self, symbol: String);
+    fn balance_of(&self, symbol: Option<String>);
 }
 
 pub trait DataProvider {
