@@ -14,6 +14,7 @@ use rust_decimal::Decimal;
 
 use crate::config::AppConfig;
 use crate::exchange::types::message::Message;
+use crate::exchange::types::portfolio::Order;
 use types::portfolio::Portfolio as PortfolioType;
 
 use self::dydx::Dydx;
@@ -31,12 +32,18 @@ pub trait Portfolio {
             .unwrap()
             .quantity
     }
-}
-
-pub trait Orders {
     fn create_order(&self);
     fn update_order(&self);
     fn cancel_order(&self);
+
+    fn list_orders(&self) -> Vec<Order> {
+        let portfolio = self.get_portfolio();
+        portfolio.orders
+    }
+}
+
+pub trait Orders {
+    
 }
 
 pub trait DataProvider {

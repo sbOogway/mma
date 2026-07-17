@@ -1,3 +1,4 @@
 /target
 /docker/grafana/data
 /config/secrets.toml
+/logs

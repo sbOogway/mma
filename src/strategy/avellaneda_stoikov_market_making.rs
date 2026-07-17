@@ -42,7 +42,9 @@ static STATE_STORAGE: OnceLock<Box<dyn MemoryMap<Decimal>>> = OnceLock::new();
 /// we use tthese values to calculate γ and κ.
 static TRADES_STORAGE: OnceLock<Box<dyn ExpirationBuffer<Decimal>>> = OnceLock::new();
 
-pub struct AvellanedaStoikovMarketMaking {}
+pub struct AvellanedaStoikovMarketMaking {
+
+}
 
 impl AvellanedaStoikovMarketMaking {
     fn reservation_price(s: Decimal, q: Decimal, γ: Decimal, σ: Decimal) -> Decimal {
@@ -173,6 +175,7 @@ impl AvellanedaStoikovMarketMaking {
                     }));
                 }
             }
+            Message::FillUpdate(fill_update) => {},
         }
     }
 }

@@ -47,7 +47,7 @@ impl Dydx {
                 equity: Decimal::ZERO,
                 balances: Vec::new(),
                 positions: Vec::new(),
-                orders: Vec::new()
+                orders: Vec::new(),
             })),
             config: cfg,
         }
@@ -204,8 +204,41 @@ async fn handle_subaccounts_feed(
                         });
                     });
             }
-            SubaccountsMessage::Update(_upd) => {
+            SubaccountsMessage::Update(update) => {
+                let contents = update.contents;
 
+                contents.iter().for_each(|content| {
+                    match &content.asset_positions {
+                        Some(asset_positions) => {},
+                        None => {}
+                    };
+
+                    match &content.perpetual_positions {
+                        Some(_) => {}
+                        None => {}
+                    };
+
+                    match &content.orders {
+                        Some(orders) => {
+                            orders.iter().for_each(|order| {});
+                        }
+                        None => {}
+                    }
+                    match &content.fills {
+                        Some(fills) => {
+                            fills.iter().for_each(|fill| {
+                                disruptor.publish(|message| {
+                                    *message = AppMessage::Empty;
+                                });
+                            });
+                        }
+                        None => {}
+                    }
+                    match &content.transfers {
+                        Some(_) => {}
+                        None => {}
+                    }
+                });
             }
         }
     }
@@ -328,9 +361,7 @@ impl Portfolio for Dydx {
     fn get_portfolio(&self) -> crate::exchange::types::portfolio::Portfolio {
         self.portfolio.lock().unwrap().clone()
     }
-}
 
-impl Orders for Dydx {
     fn create_order(&self) {
         todo!()
     }
@@ -343,5 +374,7 @@ impl Orders for Dydx {
         todo!()
     }
 }
+
+impl Orders for Dydx {}
 
 impl Exchange for Dydx {}
