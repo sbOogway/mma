@@ -55,7 +55,6 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CcxtLiquiditySide {
@@ -235,12 +234,12 @@ pub struct CcxtTrade {
     pub price: Decimal,
     pub amount: Decimal,
     pub cost: Option<Decimal>,
-    pub fee: Option<CcxtFee> ,
-    pub fees: Option<Vec<CcxtFee>> ,
+    pub fee: Option<CcxtFee>,
+    pub fees: Option<Vec<CcxtFee>>,
 }
 
 #[async_trait]
-pub trait Ccxt: Send + Sync{
+pub trait Ccxt: Send + Sync {
     async fn load_markets(&mut self);
     async fn watch_trades(
         &mut self,
@@ -250,7 +249,12 @@ pub trait Ccxt: Send + Sync{
     ) -> Vec<CcxtTrade>;
     async fn watch_order_book(&self, symbols: Vec<String>, limit: Option<u8>) -> CcxtOrderBook;
     async fn watch_balance(&self) -> CcxtBalance;
-    async fn watch_orders(&self, symbol: String, since: Option<u64>, limit: Option<u64>) -> CcxtOrder;
+    async fn watch_orders(
+        &self,
+        symbol: String,
+        since: Option<u64>,
+        limit: Option<u64>,
+    ) -> CcxtOrder;
     async fn watch_my_trades(
         &self,
         symbols: Vec<String>,

@@ -6,8 +6,8 @@ use crate::{
 use async_trait::async_trait;
 use dydx::{
     indexer::{
-        Feed, IndexerClient, IndexerConfig, OrderSide, RestConfig, SockConfig, Ticker,
-        TradesMessage,
+        Feed, IndexerClient, IndexerConfig, OrderSide, OrdersMessage, RestConfig, SockConfig,
+        Ticker, TradesMessage,
     },
     node::{Subaccount, Wallet},
 };
@@ -28,6 +28,7 @@ impl From<OrderSide> for CcxtOrderSide {
 pub struct Dydx {
     indexer: Mutex<IndexerClient>,
     trades_feed: Option<Feed<TradesMessage>>,
+    order_book_feed: Option<Feed<OrdersMessage>>,
 }
 
 impl Dydx {
@@ -85,7 +86,7 @@ impl Ccxt for Dydx {
         let mut indexer = self.indexer.lock().await;
         let feed = indexer
             .feed()
-            .trades(tickers.get(0).unwrap(), false)
+            .trades(tickers.first().unwrap(), false)
             .await
             .expect("failed to get feed");
 
@@ -126,7 +127,7 @@ impl Ccxt for Dydx {
 
                 trades_update_contents
                     .iter()
-                    .map(|update| {
+                    .flat_map(|update| {
                         update
                             .trades
                             .iter()
@@ -148,7 +149,6 @@ impl Ccxt for Dydx {
                             })
                             .collect::<Vec<CcxtTrade>>()
                     })
-                    .flatten()
                     .collect()
             }
 

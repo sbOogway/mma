@@ -16,12 +16,10 @@ pub struct Position {
 
 #[derive(Debug, Clone)]
 pub struct Order {
-    pub symbol: String, 
+    pub symbol: String,
     pub quantity: Decimal,
     pub price: Decimal,
-
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Portfolio {
@@ -32,5 +30,5 @@ pub struct Portfolio {
     /// value of all the open positions
     pub positions: Vec<Position>,
 
-    pub orders: Vec<Order>
+    pub orders: Vec<Order>,
 }

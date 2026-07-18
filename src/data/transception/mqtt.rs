@@ -153,7 +153,10 @@ mod tests {
     use rust_decimal::Decimal;
 
     use super::*;
-    use crate::exchange::types::{Side::Long, message::{bbo_update::BboUpdate, trade_update::TradeUpdate}};
+    use crate::exchange::types::{
+        Side::Long,
+        message::{bbo_update::BboUpdate, trade_update::TradeUpdate},
+    };
 
     fn test_config(suffix: &str) -> MqttConfig {
         MqttConfig {

@@ -11,4 +11,3 @@ pub struct TradeUpdate {
     pub size: Decimal,
     pub time: u64,
 }
-

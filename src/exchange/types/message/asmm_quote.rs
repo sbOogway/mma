@@ -8,4 +8,3 @@ pub struct AsmmQuote {
     pub asmm_bid_price: Decimal,
     pub asmm_ask_price: Decimal,
 }
-

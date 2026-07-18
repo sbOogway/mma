@@ -8,6 +8,5 @@ pub struct PositionUpdate {
     pub symbol: String,
     pub side: Side,
     pub quantity: Decimal,
-    pub average_price: Decimal
+    pub average_price: Decimal,
 }
-

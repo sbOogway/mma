@@ -41,7 +41,6 @@ pub trait Portfolio {
     }
 }
 
-
 pub trait DataProvider {
     fn listen(
         &self,
@@ -54,7 +53,7 @@ pub trait Infos {
     fn symbols(&self) -> Vec<String>;
 }
 
-pub trait Exchange: DataProvider + Portfolio  + Send + Sync + Infos {}
+pub trait Exchange: DataProvider + Portfolio + Send + Sync + Infos {}
 
 pub fn new(name: &str, _cfg: &AppConfig) -> Box<dyn Exchange> {
     match name {
