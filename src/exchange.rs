@@ -6,6 +6,7 @@
 pub mod dydx;
 // pub mod hyperliquid;
 pub mod types;
+use crate::ccxt;
 
 use std::{future::Future, pin::Pin};
 
@@ -42,9 +43,6 @@ pub trait Portfolio {
     }
 }
 
-pub trait Orders {
-    
-}
 
 pub trait DataProvider {
     fn listen(
@@ -58,7 +56,7 @@ pub trait Infos {
     fn symbols(&self) -> Vec<String>;
 }
 
-pub trait Exchange: DataProvider + Portfolio + Orders + Send + Sync + Infos {}
+pub trait Exchange: DataProvider + Portfolio  + Send + Sync + Infos {}
 
 pub fn new(name: &str, cfg: &AppConfig) -> Box<dyn Exchange> {
     match name {
@@ -68,12 +66,12 @@ pub fn new(name: &str, cfg: &AppConfig) -> Box<dyn Exchange> {
         //         .clone()
         //         .expect("missing [exchange.hyperliquid] config"),
         // )),
-        "dydx" => Box::new(Dydx::new(
-            cfg.exchange
-                .dydx
-                .clone()
-                .expect("missing [exchange.dydx] config"),
-        )),
+        // "dydx" => Box::new(Dydx::new(
+        //     cfg.exchange
+        //         .dydx
+        //         .clone()
+        //         .expect("missing [exchange.dydx] config"),
+        // )),
         other => panic!("unknown exchange: {other}"),
     }
 }

@@ -14,6 +14,7 @@ use rust_decimal::{Decimal, MathematicalOps};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
+    ccxt::Ccxt,
     config::AppConfig,
     data::{
         storage::{
@@ -22,9 +23,12 @@ use crate::{
         },
         transception::mqtt::MqttPublisher,
     },
-    exchange::{self, Exchange},
+    exchange::{
+        self, Exchange,
+        dydx::Dydx,
+        types::message::{Message, asmm_quote::AsmmQuote},
+    },
     strategy::Strategy,
-    exchange::types::message::{Message, asmm_quote::AsmmQuote},
 };
 
 /// i decided to have these objects static to avoid lifetime headaches and complains
@@ -43,7 +47,7 @@ static STATE_STORAGE: OnceLock<Box<dyn MemoryMap<Decimal>>> = OnceLock::new();
 static TRADES_STORAGE: OnceLock<Box<dyn ExpirationBuffer<Decimal>>> = OnceLock::new();
 
 pub struct AvellanedaStoikovMarketMaking {
-
+    exchange: Box<dyn Ccxt>,
 }
 
 impl AvellanedaStoikovMarketMaking {
@@ -175,7 +179,7 @@ impl AvellanedaStoikovMarketMaking {
                     }));
                 }
             }
-            Message::FillUpdate(fill_update) => {},
+            Message::FillUpdate(fill_update) => {}
         }
     }
 }
@@ -201,26 +205,42 @@ impl Strategy for AvellanedaStoikovMarketMaking {
         .build();
 
         let _ = DISRUPTOR_PRODUCER.set(disruptor_producer);
-        let _ = EXCHANGES.set(
-            cfg.runtime
-                .exchanges
-                .iter()
-                .map(|name| exchange::new(name, cfg))
-                .collect(),
-        );
+        // let _ = EXCHANGES.set(
+        //     cfg.runtime
+        //         .exchanges
+        //         .iter()
+        //         .map(|name| exchange::new(name, cfg))
+        //         .collect(),
+        // );
 
-        AvellanedaStoikovMarketMaking::init_state(cfg);
+        // AvellanedaStoikovMarketMaking::init_state(cfg);
 
-        Self {}
+        let config = cfg.exchange.dydx.clone().unwrap();
+        Self {
+            exchange: Box::new(Dydx::new(&config)),
+        }
     }
 
-    async fn run(&self) {
-        for exchange in EXCHANGES.get().unwrap() {
-            let producer = DISRUPTOR_PRODUCER.get().unwrap().clone();
-            tokio::spawn(async move {
-                exchange.listen(producer).await;
-            });
+    async fn run(&mut self) {
+        // for exchange in EXCHANGES.get().unwrap() {
+        //     let producer = DISRUPTOR_PRODUCER.get().unwrap().clone();
+        //     tokio::spawn(async move {
+        //         exchange.listen(producer).await;
+        //     });
+        // }
+        // future::pending::<()>().await;
+
+        self.exchange.load_markets().await;
+
+        loop {
+            let trades = self
+                .exchange
+                .watch_trades("BTC-USD".into(), None, None)
+                .await;
+
+            trades
+                .iter()
+                .for_each(|trade| tracing::debug!("{:#?}", trade));
         }
-        future::pending::<()>().await;
     }
 }

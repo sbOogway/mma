@@ -1,380 +1,225 @@
-//! dydx exchange implementation.
-//!
-//! <https://docs.dydx.xyz>
-
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::{future::Future, pin::Pin};
-
-use bigdecimal::BigDecimal as BigDec;
-use disruptor::{MultiProducer, Producer, SingleConsumerBarrier};
-use dydx::indexer::{
-    IndexerClient, IndexerConfig, OrderSide, OrdersMessage, RestConfig, SockConfig, Subaccount,
-    SubaccountsMessage, Ticker, TradesMessage,
-};
-use dydx::node::Wallet;
-use rust_decimal::Decimal;
-
-use crate::exchange::types::Side::{self, Long, Short};
 use crate::{
+    ccxt::{CcxtOrderSide, CcxtTrade},
     config::DydxConfig,
-    exchange::types::message::{BboUpdate, Message as AppMessage, PositionUpdate, TradeUpdate},
-    exchange::{DataProvider, Exchange, Infos, Orders, Portfolio},
+    utils::{self, big_decimal_to_decimal},
 };
+use async_trait::async_trait;
+use bigdecimal::BigDecimal;
+use dydx::{
+    indexer::{
+        Feed, IndexerClient, IndexerConfig, OrderSide, RestConfig, SockConfig, Ticker,
+        TradesMessage,
+    },
+    node::{Subaccount, Wallet},
+};
+use rust_decimal::Decimal;
+use serde_json::Value::Null;
 
-fn big_decimal_to_decimal(bd: &BigDec) -> Decimal {
-    Decimal::from_str(&bd.to_string()).expect("bigdecimal to decimal conversion")
-}
+use crate::ccxt::{self, Ccxt};
+use tokio::sync::Mutex;
 
-fn dydx_side_to_side(side: OrderSide) -> Side {
-    match side {
-        OrderSide::Buy => Long,
-        OrderSide::Sell => Short,
+impl From<OrderSide> for CcxtOrderSide {
+    fn from(value: OrderSide) -> Self {
+        match value {
+            OrderSide::Buy => Self::Buy,
+            OrderSide::Sell => Self::Sell,
+        }
     }
 }
 
 pub struct Dydx {
-    tickers: Vec<String>,
-    portfolio: Arc<Mutex<crate::exchange::types::portfolio::Portfolio>>,
-    config: DydxConfig,
+    indexer: Mutex<IndexerClient>,
+    trades_feed: Option<Feed<TradesMessage>>,
 }
 
 impl Dydx {
-    pub fn new(cfg: DydxConfig) -> Self {
-        Self {
-            tickers: cfg.tickers.clone(),
-            portfolio: Arc::new(Mutex::new(crate::exchange::types::portfolio::Portfolio {
-                equity: Decimal::ZERO,
-                balances: Vec::new(),
-                positions: Vec::new(),
-                orders: Vec::new(),
-            })),
-            config: cfg,
-        }
-    }
-}
-
-async fn handle_trades_feed(
-    mut disruptor: MultiProducer<AppMessage, SingleConsumerBarrier>,
-    mut feed: dydx::indexer::Feed<TradesMessage>,
-    ticker: String,
-) {
-    while let Some(msg) = feed.recv().await {
-        match msg {
-            TradesMessage::Initial(init) => {
-                for trade in init.contents.trades {
-                    let price = big_decimal_to_decimal(&trade.price.0);
-                    let size = big_decimal_to_decimal(&trade.size.0);
-                    let side = dydx_side_to_side(trade.side);
-                    let time = trade.created_at.timestamp() as u64;
-                    let msg = AppMessage::TradeUpdate(TradeUpdate {
-                        exchange: "dydx".into(),
-                        symbol: ticker.clone(),
-                        side: side,
-                        price,
-                        size,
-                        time,
-                    });
-                    disruptor.publish(|slot: &mut AppMessage| {
-                        *slot = msg;
-                    });
-                }
-            }
-            TradesMessage::Update(upd) => {
-                for contents in upd.contents {
-                    for trade in contents.trades {
-                        let price = big_decimal_to_decimal(&trade.price.0);
-                        let size = big_decimal_to_decimal(&trade.size.0);
-                        let side = dydx_side_to_side(trade.side);
-                        let time = trade.created_at.timestamp() as u64;
-                        let msg = AppMessage::TradeUpdate(TradeUpdate {
-                            exchange: "dydx".into(),
-                            symbol: ticker.clone(),
-                            side: side.into(),
-                            price,
-                            size,
-                            time,
-                        });
-                        disruptor.publish(|slot: &mut AppMessage| {
-                            *slot = msg;
-                        });
-                    }
-                }
-            }
-        }
-    }
-}
-
-async fn handle_orders_feed(
-    mut disruptor: MultiProducer<AppMessage, SingleConsumerBarrier>,
-    mut feed: dydx::indexer::Feed<OrdersMessage>,
-    ticker: String,
-) {
-    let mut best_bid_price = Decimal::ZERO;
-    let mut best_bid_size = Decimal::ZERO;
-    let mut best_ask_price = Decimal::ZERO;
-    let mut best_ask_size = Decimal::ZERO;
-
-    while let Some(msg) = feed.recv().await {
-        let (bids, asks) = match msg {
-            OrdersMessage::Initial(init) => (init.contents.bids, init.contents.asks),
-            OrdersMessage::Update(upd) => (
-                upd.contents.bids.unwrap_or_default(),
-                upd.contents.asks.unwrap_or_default(),
-            ),
+    pub fn new(cfg: &DydxConfig) -> Self {
+        let sock_cfg = SockConfig {
+            endpoint: cfg.indexer_ws_endpoint.clone(),
+            timeout: 5_000,
+            rate_limit: std::num::NonZeroU32::new(2).unwrap(),
+        };
+        let rest_cfg = RestConfig {
+            endpoint: "http://localhost".into(),
+        };
+        let indexer_cfg = IndexerConfig {
+            rest: rest_cfg,
+            sock: sock_cfg,
         };
 
-        for level in &bids {
-            let price = big_decimal_to_decimal(&level.price.0);
-            let size = big_decimal_to_decimal(&level.size.0);
-            if size.is_zero() && price == best_bid_price {
-                best_bid_price = Decimal::ZERO;
-                best_bid_size = Decimal::ZERO;
-            } else if !size.is_zero() && price > best_bid_price {
-                best_bid_price = price;
-                best_bid_size = size;
+        let indexer = IndexerClient::new(indexer_cfg);
+
+        let wallet = match Wallet::from_mnemonic(&cfg.mnemonic) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to create wallet from mnemonic");
+                panic!();
             }
-        }
-
-        for level in &asks {
-            let price = big_decimal_to_decimal(&level.price.0);
-            let size = big_decimal_to_decimal(&level.size.0);
-            if size.is_zero() && price == best_ask_price {
-                best_ask_price = Decimal::ZERO;
-                best_ask_size = Decimal::ZERO;
-            } else if !size.is_zero() && (best_ask_price.is_zero() || price < best_ask_price) {
-                best_ask_price = price;
-                best_ask_size = size;
+        };
+        let account = match wallet.account_offline(0) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to derive account");
+                panic!();
             }
-        }
-
-        if best_bid_price > Decimal::ZERO && best_ask_price > Decimal::ZERO {
-            let mid = (best_bid_price + best_ask_price) / Decimal::new(2, 0);
-
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
-
-            let msg = AppMessage::BboUpdate(BboUpdate {
-                exchange: "dydx".into(),
-                symbol: ticker.clone(),
-                bid_price: best_bid_price,
-                bid_size: best_bid_size,
-                ask_price: best_ask_price,
-                ask_size: best_ask_size,
-                time: now,
-                mid_price: mid,
-            });
-
-            disruptor.publish(|slot: &mut AppMessage| {
-                *slot = msg;
-            });
+        };
+        tracing::info!(address = %account.address(), "dydx wallet derived");
+        let subaccount: Subaccount = match account.subaccount(cfg.subaccount_number) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to create subaccount");
+                panic!();
+            }
+        };
+        Self {
+            indexer: Mutex::new(indexer),
+            trades_feed: None,
         }
     }
 }
 
-async fn handle_subaccounts_feed(
-    mut disruptor: MultiProducer<AppMessage, SingleConsumerBarrier>,
-    mut feed: dydx::indexer::Feed<SubaccountsMessage>,
-) {
-    while let Some(msg) = feed.recv().await {
-        tracing::info!("{:#?}", msg);
-        match msg {
-            SubaccountsMessage::Initial(init) => {
-                let _total_value = big_decimal_to_decimal(&init.contents.subaccount.equity);
-                let _total_value_update = disruptor.publish(|_message| {
-                    // *message = tot
-                });
+#[async_trait]
+impl Ccxt for Dydx {
+    async fn load_markets(&mut self) {
+        let mut tickers = Vec::<Ticker>::new();
+        tickers.push(Ticker("BTC-USD".into()));
 
-                init.contents
-                    .subaccount
-                    .open_perpetual_positions
+        let mut indexer = self.indexer.lock().await;
+        let feed = indexer
+            .feed()
+            .trades(tickers.get(0).unwrap(), false)
+            .await
+            .expect("failed to get feed");
+
+        self.trades_feed = Some(feed);
+    }
+
+    async fn watch_trades(
+        &mut self,
+        symbol: String,
+        _since: Option<u64>,
+        _limit: Option<u64>,
+    ) -> Vec<ccxt::CcxtTrade> {
+        let trades_feed = self.trades_feed.as_mut().unwrap();
+        match trades_feed.recv().await {
+            Some(dydx::indexer::TradesMessage::Initial(trades)) => trades
+                .contents
+                .trades
+                .iter()
+                .map(|trade| CcxtTrade {
+                    info: Null,
+                    id: trade.id.0.clone(),
+                    timestamp: trade.created_at.timestamp_millis(),
+                    datetime: trade.created_at,
+                    symbol: symbol.clone(),
+                    order: Some(trade.id.0.clone()),
+                    order_type: None,
+                    side: Some(trade.side.clone().into()),
+                    taker_or_maker: None,
+                    price: big_decimal_to_decimal(trade.price.0.clone()),
+                    amount: big_decimal_to_decimal(trade.size.0.clone()),
+                    cost: None,
+                    fee: None,
+                    fees: None,
+                })
+                .collect(),
+            Some(dydx::indexer::TradesMessage::Update(trades)) => {
+                let trades_update_contents = trades.contents;
+
+                trades_update_contents
                     .iter()
-                    .for_each(|(ticker, position)| {
-                        let balance_update = AppMessage::BalanceUpdate(PositionUpdate {
-                            exchange: "dydx".into(),
-                            symbol: ticker.0.clone(),
-                            quantity: big_decimal_to_decimal(&position.size),
-                            average_price: big_decimal_to_decimal(&position.entry_price),
-                            side: Long,
-                        });
-                        disruptor.publish(|message: &mut AppMessage| {
-                            *message = balance_update;
-                        });
-                    });
+                    .map(|update| {
+                        update
+                            .trades
+                            .iter()
+                            .map(|trade| CcxtTrade {
+                                info: Null,
+                                id: trade.id.0.clone(),
+                                timestamp: trade.created_at.timestamp_millis(),
+                                datetime: trade.created_at,
+                                symbol: symbol.clone(),
+                                order: Some(trade.id.0.clone()),
+                                order_type: None,
+                                side: Some(trade.side.clone().into()),
+                                taker_or_maker: None,
+                                price: big_decimal_to_decimal(trade.price.0.clone()),
+                                amount: big_decimal_to_decimal(trade.price.0.clone()),
+                                cost: None,
+                                fee: None,
+                                fees: None,
+                            })
+                            .collect::<Vec<CcxtTrade>>()
+                    })
+                    .flatten()
+                    .collect()
             }
-            SubaccountsMessage::Update(update) => {
-                let contents = update.contents;
 
-                contents.iter().for_each(|content| {
-                    match &content.asset_positions {
-                        Some(asset_positions) => {},
-                        None => {}
-                    };
-
-                    match &content.perpetual_positions {
-                        Some(_) => {}
-                        None => {}
-                    };
-
-                    match &content.orders {
-                        Some(orders) => {
-                            orders.iter().for_each(|order| {});
-                        }
-                        None => {}
-                    }
-                    match &content.fills {
-                        Some(fills) => {
-                            fills.iter().for_each(|fill| {
-                                disruptor.publish(|message| {
-                                    *message = AppMessage::Empty;
-                                });
-                            });
-                        }
-                        None => {}
-                    }
-                    match &content.transfers {
-                        Some(_) => {}
-                        None => {}
-                    }
-                });
-            }
+            None => Vec::new(),
         }
     }
-}
 
-impl Infos for Dydx {
-    fn name(&self) -> String {
-        "dydx".into()
-    }
-
-    fn symbols(&self) -> Vec<String> {
-        self.tickers.clone()
-    }
-}
-
-impl DataProvider for Dydx {
-    fn listen(
+    async fn watch_order_book(
         &self,
-        disruptor: MultiProducer<AppMessage, SingleConsumerBarrier>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        let cfg = self.config.clone();
-        let tickers = self.tickers.clone();
-        let d = disruptor.clone();
-        let portfolio = self.portfolio.clone();
-
-        Box::pin(async move {
-            let sock_cfg = SockConfig {
-                endpoint: cfg.indexer_ws_endpoint.clone(),
-                timeout: 5_000,
-                rate_limit: std::num::NonZeroU32::new(2).unwrap(),
-            };
-            let rest_cfg = RestConfig {
-                endpoint: "http://localhost".into(),
-            };
-            let indexer_cfg = IndexerConfig {
-                rest: rest_cfg,
-                sock: sock_cfg,
-            };
-
-            let mut indexer = IndexerClient::new(indexer_cfg);
-
-            let wallet = match Wallet::from_mnemonic(&cfg.mnemonic) {
-                Ok(w) => w,
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to create wallet from mnemonic");
-                    return;
-                }
-            };
-            let account = match wallet.account_offline(0) {
-                Ok(a) => a,
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to derive account");
-                    return;
-                }
-            };
-            tracing::info!(address = %account.address(), "dydx wallet derived");
-            let subaccount: Subaccount = match account.subaccount(cfg.subaccount_number) {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to create subaccount");
-                    return;
-                }
-            };
-
-            let mut handles = Vec::new();
-
-            for ticker_str in &tickers {
-                let ticker = Ticker(ticker_str.clone());
-
-                match indexer.feed().trades(&ticker, false).await {
-                    Ok(feed) => {
-                        let d = d.clone();
-                        let t = ticker_str.clone();
-                        handles.push(tokio::spawn(async move {
-                            handle_trades_feed(d, feed, t).await;
-                        }));
-                    }
-                    Err(e) => {
-                        tracing::error!(ticker = %ticker_str, error = %e, "failed to subscribe to trades");
-                    }
-                }
-
-                let d = d.clone();
-                let t = ticker_str.clone();
-                match indexer.feed().orders(&ticker, false).await {
-                    Ok(feed) => {
-                        handles.push(tokio::spawn(async move {
-                            handle_orders_feed(d, feed, t).await;
-                        }));
-                    }
-                    Err(e) => {
-                        tracing::error!(ticker = %ticker_str, error = %e, "failed to subscribe to orderbook");
-                    }
-                }
-            }
-
-            let _portfolio = portfolio.clone();
-            match indexer.feed().subaccounts(subaccount, false).await {
-                Ok(feed) => {
-                    let d = d.clone();
-                    handles.push(tokio::spawn(async move {
-                        handle_subaccounts_feed(d, feed).await;
-                    }));
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to subscribe to subaccounts");
-                }
-            }
-
-            drop(indexer);
-
-            for h in handles {
-                let _ = h.await;
-            }
-        })
-    }
-}
-
-impl Portfolio for Dydx {
-    fn get_portfolio(&self) -> crate::exchange::types::portfolio::Portfolio {
-        self.portfolio.lock().unwrap().clone()
-    }
-
-    fn create_order(&self) {
+        symbols: Vec<String>,
+        limit: Option<u8>,
+    ) -> ccxt::CcxtOrderBook {
         todo!()
     }
 
-    fn update_order(&self) {
+    async fn watch_balance(&self) -> ccxt::CcxtBalance {
         todo!()
     }
 
-    fn cancel_order(&self) {
+    async fn watch_orders(
+        &self,
+        symbol: String,
+        since: Option<u64>,
+        limit: Option<u64>,
+    ) -> ccxt::CcxtOrder {
+        todo!()
+    }
+
+    async fn watch_my_trades(
+        &self,
+        symbols: Vec<String>,
+        since: Option<u64>,
+        limit: Option<u64>,
+    ) -> ccxt::CcxtTrade {
+        todo!()
+    }
+
+    async fn watch_positions(&self, symbols: Vec<String>) -> ccxt::CcxtPosition {
+        todo!()
+    }
+
+    async fn create_order_ws(
+        &self,
+        symbol: String,
+        type_: ccxt::CcxtOrderType,
+        side: ccxt::CcxtOrderSide,
+        amount: rust_decimal::prelude::Decimal,
+        price: Option<rust_decimal::prelude::Decimal>,
+    ) -> ccxt::CcxtOrder {
+        todo!()
+    }
+
+    async fn edit_order_ws(
+        &self,
+        id: String,
+        symbol: Option<String>,
+        type_: Option<ccxt::CcxtOrderType>,
+        side: Option<ccxt::CcxtOrderSide>,
+        amount: Option<rust_decimal::prelude::Decimal>,
+        price: Option<rust_decimal::prelude::Decimal>,
+    ) -> ccxt::CcxtOrder {
+        todo!()
+    }
+
+    async fn cancel_orders_ws(&self, id: String) -> ccxt::CcxtOrder {
+        todo!()
+    }
+
+    async fn cancel_all_orders_ws(&self) {
         todo!()
     }
 }
-
-impl Orders for Dydx {}
-
-impl Exchange for Dydx {}

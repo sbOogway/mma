@@ -1816,6 +1816,7 @@ version = "0.1.3"
 dependencies = [
  "async-trait",
  "bigdecimal",
+ "chrono",
  "config",
  "disruptor",
  "dydx",

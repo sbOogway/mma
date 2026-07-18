@@ -4,3 +4,5 @@ pub mod config;
 pub mod data;
 pub mod exchange;
 pub mod strategy;
+pub mod ccxt;
+pub mod utils;
