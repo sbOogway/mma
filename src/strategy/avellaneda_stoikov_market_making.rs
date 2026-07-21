@@ -224,6 +224,16 @@ impl Strategy for AvellanedaStoikovMarketMaking {
             })
         };
 
-        let _ = tokio::join!(h1, h2, h3);
+        let h4 = {
+            let exchange = exchange.clone();
+            tokio::spawn(async move {
+                loop {
+                    let position = exchange.watch_positions(vec![]).await;
+                    tracing::info!("{:#?}", position);
+                }
+            })
+        };
+
+        let _ = tokio::join!(h1, h2, h3, h4);
     }
 }

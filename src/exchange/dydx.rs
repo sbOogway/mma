@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
-    ccxt::{CcxtBalance, CcxtOrderBook, CcxtOrderBookLevel, CcxtOrderSide, CcxtTrade},
+    ccxt::{CcxtBalance, CcxtOrderBook, CcxtOrderBookLevel, CcxtOrderSide, CcxtPosition, CcxtPositionSide, CcxtTrade},
     config::DydxConfig,
     exchange::{Exchange, Info},
     utils::big_decimal_to_decimal,
@@ -44,6 +44,8 @@ pub struct Dydx {
     order_book_rx: Mutex<UnboundedReceiver<CcxtOrderBook>>,
     balance_tx: UnboundedSender<CcxtBalance>,
     balance_rx: Mutex<UnboundedReceiver<CcxtBalance>>,
+    position_tx: UnboundedSender<CcxtPosition>,
+    position_rx: Mutex<UnboundedReceiver<CcxtPosition>>,
 }
 #[derive(Default, Debug)]
 pub struct OrderBook {
@@ -206,9 +208,10 @@ async fn handle_order_book_feed(
     }
 }
 
-async fn handle_balance_feed(
+async fn handle_subaccount_feed(
     feed: &mut Feed<SubaccountsMessage>,
-    sender: UnboundedSender<CcxtBalance>,
+    balance_tx: UnboundedSender<CcxtBalance>,
+    position_tx: UnboundedSender<CcxtPosition>,
 ) {
     loop {
         match feed.recv().await {
@@ -230,7 +233,7 @@ async fn handle_balance_feed(
                 let mut free = HashMap::new();
                 free.insert("USDC".into(), usdc_balance);
 
-                let _ = sender.send(CcxtBalance {
+                let _ = balance_tx.send(CcxtBalance {
                     info: serde_json::Value::Null,
                     timestamp: Utc::now().timestamp() as u64,
                     datetime: Utc::now().to_rfc3339(),
@@ -240,6 +243,48 @@ async fn handle_balance_feed(
                     debt: HashMap::new(),
                     currencies: HashMap::new(),
                 });
+
+                for (_ticker, position) in &subaccount.open_perpetual_positions {
+                    let side = match position.side {
+                        dydx::indexer::PositionSide::Long => CcxtPositionSide::Long,
+                        dydx::indexer::PositionSide::Short => CcxtPositionSide::Short,
+                    };
+                    let contracts = big_decimal_to_decimal(position.size.0.clone())
+                        .to_f64()
+                        .unwrap_or(0.0);
+                    let entry_price = big_decimal_to_decimal(position.entry_price.0.clone())
+                        .to_f64()
+                        .unwrap_or(0.0);
+                    let unrealized_pnl = big_decimal_to_decimal(position.unrealized_pnl.clone())
+                        .to_f64()
+                        .unwrap_or(0.0);
+
+                    let _ = position_tx.send(CcxtPosition {
+                        info: serde_json::Value::Null,
+                        id: position.market.0.clone(),
+                        symbol: position.market.0.clone(),
+                        timestamp: Utc::now().timestamp() as u64,
+                        datetime: Utc::now().to_rfc3339(),
+                        isolated: false,
+                        hedged: false,
+                        side,
+                        contracts,
+                        contract_size: 1.0,
+                        entry_price,
+                        mark_price: 0.0,
+                        notional: 0.0,
+                        leverage: 0.0,
+                        collateral: 0.0,
+                        initial_margin: 0.0,
+                        maintenance_margin: 0.0,
+                        initial_margin_percentage: 0.0,
+                        maintenance_margin_percentage: 0.0,
+                        unrealized_pnl,
+                        liquidation_price: 0.0,
+                        margin_mode: crate::ccxt::CcxtMarginMode::Cross,
+                        percentage: 0.0,
+                    });
+                }
             }
             Some(SubaccountsMessage::Update(update)) => {
                 let mut free = HashMap::new();
@@ -254,18 +299,64 @@ async fn handle_balance_feed(
                             free.insert(symbol, size);
                         }
                     }
+
+                    if let Some(perpetual_positions) = &content.perpetual_positions {
+                        for position in perpetual_positions {
+                            let side = match position.side {
+                                dydx::indexer::PositionSide::Long => CcxtPositionSide::Long,
+                                dydx::indexer::PositionSide::Short => CcxtPositionSide::Short,
+                            };
+                            let contracts = big_decimal_to_decimal(position.size.0.clone())
+                                .to_f64()
+                                .unwrap_or(0.0);
+                            let entry_price = big_decimal_to_decimal(position.entry_price.0.clone())
+                                .to_f64()
+                                .unwrap_or(0.0);
+                            let unrealized_pnl = position.unrealized_pnl.as_ref()
+                                .map(|v| big_decimal_to_decimal(v.clone()).to_f64().unwrap_or(0.0))
+                                .unwrap_or(0.0);
+
+                            let _ = position_tx.send(CcxtPosition {
+                                info: serde_json::Value::Null,
+                                id: position.position_id.clone(),
+                                symbol: position.market.0.clone(),
+                                timestamp: Utc::now().timestamp() as u64,
+                                datetime: Utc::now().to_rfc3339(),
+                                isolated: false,
+                                hedged: false,
+                                side,
+                                contracts,
+                                contract_size: 1.0,
+                                entry_price,
+                                mark_price: 0.0,
+                                notional: 0.0,
+                                leverage: 0.0,
+                                collateral: 0.0,
+                                initial_margin: 0.0,
+                                maintenance_margin: 0.0,
+                                initial_margin_percentage: 0.0,
+                                maintenance_margin_percentage: 0.0,
+                                unrealized_pnl,
+                                liquidation_price: 0.0,
+                                margin_mode: crate::ccxt::CcxtMarginMode::Cross,
+                                percentage: 0.0,
+                            });
+                        }
+                    }
                 }
 
-                let _ = sender.send(CcxtBalance {
-                    info: serde_json::Value::Null,
-                    timestamp: Utc::now().timestamp() as u64,
-                    datetime: Utc::now().to_rfc3339(),
-                    free,
-                    used: HashMap::new(),
-                    total: HashMap::new(),
-                    debt: HashMap::new(),
-                    currencies: HashMap::new(),
-                });
+                if !free.is_empty() {
+                    let _ = balance_tx.send(CcxtBalance {
+                        info: serde_json::Value::Null,
+                        timestamp: Utc::now().timestamp() as u64,
+                        datetime: Utc::now().to_rfc3339(),
+                        free,
+                        used: HashMap::new(),
+                        total: HashMap::new(),
+                        debt: HashMap::new(),
+                        currencies: HashMap::new(),
+                    });
+                }
             }
             None => {
                 tracing::warn!("balance feed closed");
@@ -311,6 +402,7 @@ impl Dydx {
         let (trades_tx, trades_rx) = mpsc::unbounded_channel::<CcxtTrade>();
         let (order_book_tx, order_book_rx) = mpsc::unbounded_channel::<CcxtOrderBook>();
         let (balance_tx, balance_rx) = mpsc::unbounded_channel::<CcxtBalance>();
+        let (position_tx, position_rx) = mpsc::unbounded_channel::<CcxtPosition>();
         Self {
             indexer: Mutex::new(indexer),
             symbols: Vec::new(),
@@ -322,6 +414,8 @@ impl Dydx {
             order_book_rx: Mutex::new(order_book_rx),
             balance_tx,
             balance_rx: Mutex::new(balance_rx),
+            position_tx,
+            position_rx: Mutex::new(position_rx),
         }
     }
 }
@@ -337,8 +431,9 @@ impl Ccxt for Dydx {
             );
             let mut balance_feed = indexer.feed().subaccounts(subaccount, false).await.unwrap();
             let balance_tx = self.balance_tx.clone();
+            let position_tx = self.position_tx.clone();
             tokio::spawn(async move {
-                handle_balance_feed(&mut balance_feed, balance_tx).await;
+                handle_subaccount_feed(&mut balance_feed, balance_tx, position_tx).await;
             });
         }
 
@@ -431,7 +526,13 @@ impl Ccxt for Dydx {
     }
 
     async fn watch_positions(&self, _symbols: Vec<String>) -> ccxt::CcxtPosition {
-        todo!()
+        let mut rx = self.position_rx.lock().await;
+        loop {
+            match rx.recv().await {
+                Some(position) => return position,
+                None => panic!("position channel closed"),
+            }
+        }
     }
 
     async fn create_order_ws(
