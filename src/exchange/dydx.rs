@@ -390,3 +390,55 @@ impl Info for Dydx {
 }
 
 impl Exchange for Dydx {}
+
+#[cfg(test)]
+mod tests {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::connect_async;
+    use tokio_tungstenite::tungstenite::Message;
+
+    #[tokio::test]
+    async fn ping_latency_under_500ms() {
+        let (mut ws_stream, response) = connect_async("wss://indexer.dydx.trade/v4/ws")
+            .await
+            .expect("failed to connect");
+
+        assert!(
+            response.status().is_success() || response.status().as_u16() == 101,
+            "unexpected status: {}",
+            response.status(),
+        );
+
+        let payload: Vec<u8> = std::time::Instant::now()
+            .elapsed()
+            .as_nanos()
+            .to_be_bytes()
+            .to_vec();
+        let start = std::time::Instant::now();
+
+        ws_stream
+            .send(Message::Ping(payload.clone().into()))
+            .await
+            .expect("failed to send ping");
+
+        loop {
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws_stream.next())
+                .await
+                .expect("timeout waiting for pong")
+                .expect("stream ended")
+                .expect("message error");
+
+            match msg {
+                Message::Pong(data) if data.as_ref() == payload.as_slice() => break,
+                _ => continue,
+            }
+        }
+
+        let latency = start.elapsed();
+        println!("ping latency dydx: {latency:?}");
+        assert!(
+            latency < std::time::Duration::from_millis(500),
+            "ping latency too high: {latency:?}",
+        );
+    }
+}
