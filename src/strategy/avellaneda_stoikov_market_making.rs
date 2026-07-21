@@ -130,8 +130,8 @@ impl AvellanedaStoikovMarketMaking {
 
                 let optimal_spread = AvellanedaStoikovMarketMaking::optimal_spread(γ, κ);
 
-                let asmm_bid_price = reservation_price - optimal_spread / Decimal::new(2, 0);
-                let asmm_ask_price = reservation_price + optimal_spread / Decimal::new(2, 0);
+                let _asmm_bid_price = reservation_price - optimal_spread / Decimal::new(2, 0);
+                let _asmm_ask_price = reservation_price + optimal_spread / Decimal::new(2, 0);
 
                 state.set(bid_price_key, bid_price);
                 state.set(bid_size_key, bid_size);

@@ -425,7 +425,7 @@ impl Ccxt for Dydx {
 
     async fn watch_trades_for_symbols(
         &self,
-        symbols: Vec<String>,
+        _symbols: Vec<String>,
         _since: Option<u64>,
         _limit: Option<u64>,
     ) -> Vec<ccxt::CcxtTrade> {
@@ -445,12 +445,7 @@ impl Ccxt for Dydx {
 
     async fn watch_balance(&self) -> ccxt::CcxtBalance {
         let mut rx = self.balance_rx.lock().await;
-        loop {
-            match rx.recv().await {
-                Some(balance) => return balance,
-                None => panic!("balance channel closed"),
-            }
-        }
+        rx.recv().await.expect("balance channel closed")
     }
 
     async fn watch_orders(
@@ -473,12 +468,7 @@ impl Ccxt for Dydx {
 
     async fn watch_positions(&self, _symbols: Vec<String>) -> ccxt::CcxtPosition {
         let mut rx = self.position_rx.lock().await;
-        loop {
-            match rx.recv().await {
-                Some(position) => return position,
-                None => panic!("position channel closed"),
-            }
-        }
+        rx.recv().await.expect("position channel closed")
     }
 
     async fn create_order_ws(
