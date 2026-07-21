@@ -1,17 +1,18 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
-    ccxt::{CcxtOrderBook, CcxtOrderBookLevel, CcxtOrderSide, CcxtTrade},
+    ccxt::{CcxtBalance, CcxtOrderBook, CcxtOrderBookLevel, CcxtOrderSide, CcxtTrade},
     config::DydxConfig,
     exchange::{Exchange, Info},
     utils::big_decimal_to_decimal,
 };
 use async_trait::async_trait;
-use bigdecimal::Zero;
+use bigdecimal::{ToPrimitive, Zero};
+use chrono::Utc;
 use dydx::{
     indexer::{
-        Feed, IndexerClient, IndexerConfig, OrderSide, OrderbookResponsePriceLevel, OrdersMessage, Price, Quantity, RestConfig, SockConfig, Ticker, TradesMessage,
-    }, node::{Subaccount, Wallet},
+        Feed, IndexerClient, IndexerConfig, OrderSide, OrderbookResponsePriceLevel, OrdersMessage, Price, Quantity, RestConfig, SockConfig, SubaccountsMessage, Ticker, TradesMessage,
+    }, node::Wallet,
 };
 
 use rust_decimal::Decimal;
@@ -35,11 +36,14 @@ impl From<OrderSide> for CcxtOrderSide {
 pub struct Dydx {
     indexer: Mutex<IndexerClient>,
     symbols: Vec<String>,
+    address: String,
+    subaccount_number: u32,
     trades_tx: UnboundedSender<CcxtTrade>,
     trades_rx: Mutex<UnboundedReceiver<CcxtTrade>>,
     order_book_tx: UnboundedSender<CcxtOrderBook>,
     order_book_rx: Mutex<UnboundedReceiver<CcxtOrderBook>>,
-    
+    balance_tx: UnboundedSender<CcxtBalance>,
+    balance_rx: Mutex<UnboundedReceiver<CcxtBalance>>,
 }
 #[derive(Default, Debug)]
 pub struct OrderBook {
@@ -202,6 +206,75 @@ async fn handle_order_book_feed(
     }
 }
 
+async fn handle_balance_feed(
+    feed: &mut Feed<SubaccountsMessage>,
+    sender: UnboundedSender<CcxtBalance>,
+) {
+    loop {
+        match feed.recv().await {
+            Some(SubaccountsMessage::Initial(initial)) => {
+                let subaccount = &initial.contents.subaccount;
+                let free_collateral = big_decimal_to_decimal(subaccount.free_collateral.clone())
+                    .to_f64()
+                    .unwrap_or(0.0);
+                let mut usdc_balance = free_collateral;
+
+                for (ticker, asset) in &subaccount.asset_positions {
+                    if ticker.0 == "USDC" {
+                        usdc_balance = big_decimal_to_decimal(asset.size.0.clone())
+                            .to_f64()
+                            .unwrap_or(0.0);
+                    }
+                }
+
+                let mut free = HashMap::new();
+                free.insert("USDC".into(), usdc_balance);
+
+                let _ = sender.send(CcxtBalance {
+                    info: serde_json::Value::Null,
+                    timestamp: Utc::now().timestamp() as u64,
+                    datetime: Utc::now().to_rfc3339(),
+                    free,
+                    used: HashMap::new(),
+                    total: HashMap::new(),
+                    debt: HashMap::new(),
+                    currencies: HashMap::new(),
+                });
+            }
+            Some(SubaccountsMessage::Update(update)) => {
+                let mut free = HashMap::new();
+
+                for content in &update.contents {
+                    if let Some(asset_positions) = &content.asset_positions {
+                        for asset in asset_positions {
+                            let size = big_decimal_to_decimal(asset.size.0.clone())
+                                .to_f64()
+                                .unwrap_or(0.0);
+                            let symbol = asset.symbol.0.clone();
+                            free.insert(symbol, size);
+                        }
+                    }
+                }
+
+                let _ = sender.send(CcxtBalance {
+                    info: serde_json::Value::Null,
+                    timestamp: Utc::now().timestamp() as u64,
+                    datetime: Utc::now().to_rfc3339(),
+                    free,
+                    used: HashMap::new(),
+                    total: HashMap::new(),
+                    debt: HashMap::new(),
+                    currencies: HashMap::new(),
+                });
+            }
+            None => {
+                tracing::warn!("balance feed closed");
+                break;
+            }
+        }
+    }
+}
+
 impl Dydx {
     pub fn new(cfg: &DydxConfig) -> Self {
         let sock_cfg = SockConfig {
@@ -234,23 +307,21 @@ impl Dydx {
             }
         };
         tracing::info!(address = %account.address(), "dydx wallet derived");
-        let _subaccount: Subaccount = match account.subaccount(cfg.subaccount_number) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!(error = %e, "failed to create subaccount");
-                panic!();
-            }
-        };
 
         let (trades_tx, trades_rx) = mpsc::unbounded_channel::<CcxtTrade>();
         let (order_book_tx, order_book_rx) = mpsc::unbounded_channel::<CcxtOrderBook>();
+        let (balance_tx, balance_rx) = mpsc::unbounded_channel::<CcxtBalance>();
         Self {
             indexer: Mutex::new(indexer),
             symbols: Vec::new(),
+            address: account.address().to_string(),
+            subaccount_number: cfg.subaccount_number,
             trades_tx,
             trades_rx: Mutex::new(trades_rx),
             order_book_tx,
             order_book_rx: Mutex::new(order_book_rx),
+            balance_tx,
+            balance_rx: Mutex::new(balance_rx),
         }
     }
 }
@@ -258,6 +329,19 @@ impl Dydx {
 #[async_trait]
 impl Ccxt for Dydx {
     async fn load_markets(&mut self) {
+        {
+            let mut indexer = self.indexer.lock().await;
+            let subaccount: dydx::indexer::Subaccount = dydx::indexer::Subaccount::new(
+                self.address.parse().unwrap(),
+                self.subaccount_number.try_into().unwrap(),
+            );
+            let mut balance_feed = indexer.feed().subaccounts(subaccount, false).await.unwrap();
+            let balance_tx = self.balance_tx.clone();
+            tokio::spawn(async move {
+                handle_balance_feed(&mut balance_feed, balance_tx).await;
+            });
+        }
+
         for symbol in self.symbols() {
             let ticker = Ticker(symbol.clone());
 
@@ -319,7 +403,13 @@ impl Ccxt for Dydx {
     }
 
     async fn watch_balance(&self) -> ccxt::CcxtBalance {
-        todo!()
+        let mut rx = self.balance_rx.lock().await;
+        loop {
+            match rx.recv().await {
+                Some(balance) => return balance,
+                None => panic!("balance channel closed"),
+            }
+        }
     }
 
     async fn watch_orders(

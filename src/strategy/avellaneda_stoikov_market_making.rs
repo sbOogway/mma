@@ -198,7 +198,7 @@ impl Strategy for AvellanedaStoikovMarketMaking {
             tokio::spawn(async move {
                 loop {
                     let trade = exchange.watch_trades(symbol.clone(), None, None).await;
-                    tracing::info!("trade: {:#?}", trade);
+                    tracing::debug!("trade: {:#?}", trade);
                 }
             })
         };
@@ -214,6 +214,16 @@ impl Strategy for AvellanedaStoikovMarketMaking {
             })
         };
 
-        let _ = tokio::join!(h1, h2);
+        let h3 = {
+            let exchange = exchange.clone();
+            tokio::spawn(async move {
+                loop {
+                    let balance = exchange.watch_balance().await;
+                    tracing::info!("{:#?}", balance);
+                }
+            })
+        };
+
+        let _ = tokio::join!(h1, h2, h3);
     }
 }
